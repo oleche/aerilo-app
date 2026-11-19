@@ -41,7 +41,7 @@ Native SwiftUI with Liquid Glass. Apple frameworks only, no third-party code. Ne
 
 ## For developers
 
-- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): how the code works, file by file.
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): how the code works, file by file, including [what photo tidying does and how](docs/ARCHITECTURE.md#photo-tidying-all-platforms).
 - [docs/DEVELOPING.md](docs/DEVELOPING.md): building, the tests, screenshots, and releasing.
 - [docs/PUBLISHING.md](docs/PUBLISHING.md): what is published, what is left, and the steps to the App Store.
 

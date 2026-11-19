@@ -159,7 +159,9 @@ These were established by running a probe inside the sandbox, not from documenta
 
 ## Photo tidying (all platforms)
 
-`PhotoScanner.scan` (`PhotoEngine.swift`) reads the library and returns groups; it never changes anything.
+"Tidying" means: look through the photo library, group what the user probably does not need, and wait. `PhotoScanner.scan` (`PhotoEngine.swift`) reads the library and returns groups; it never changes anything. Deleting is a separate step the user starts and the system confirms.
+
+The system offers no "clean the library" call, so the grouping rules below are Aerilo's own. They are built on Apple frameworks only: PhotoKit to read the library, to tell screenshots and screen recordings apart, to report sizes and to delete; Vision to judge whether two photos look alike; CryptoKit for the hashes. It has nothing to do with the Duplicates album in Apple's Photos app, which apps cannot read.
 
 - **Exact duplicates**: assets with the same type, pixel size, capture second and duration are candidates; they are duplicates only if their stored bytes hash to the same SHA-256. That holds for videos too: a video is read in pieces and hashed, and only when another video in the group has the same file size. An asset whose bytes are not on the device is never called a duplicate.
 - **Similar shots**: photos taken within 5 seconds of each other with the same pixel size form a chain; neighbours in a chain are compared with `PhotoScanner.alike`. That uses Apple's image feature print when the device provides it (distance below 0.15; measured 0.03 to 0.04 for the same shot a second later and 0.23 and up for different pictures), and otherwise a 64-bit difference hash (at most 8 bits apart).
@@ -171,9 +173,11 @@ Each asset appears in one category only, the first that claims it. Ticks are kep
 - **Screen recordings**: the screen-recording subtype. Never pre-selected.
 - **Largest videos**: over 50 MB, largest first. These are never pre-selected.
 
+What arrives ticked: in duplicates and similar shots, every item but the one to keep (`best(of:)`: a favourite if there is one, otherwise the largest, which among equal shots is the first); old screenshots. A favourite is never ticked by Aerilo, in any category.
+
 Sizes come from documented calls only (`requestImageDataAndOrientation`, `requestAVAsset`), with network access off, so a scan never downloads from iCloud.
 
-`PhotoModel` holds the groups and the set of ticked ids. `deleteSelected(in:)` calls `PHAssetChangeRequest.deleteAssets`; the system asks the user to confirm, and items go to Recently Deleted for 30 days. `PhotoAdvisor` gives the on-device model only counts and category names and asks for one sentence.
+`PhotoModel` holds the groups and the set of ticked ids. `deleteSelected(in:)` calls `PHAssetChangeRequest.deleteAssets`; the system asks the user to confirm, and items go to Recently Deleted for 30 days. `deleteAll(in:)` ticks everything of one kind except each group's keeper and then does the same. `PhotoAdvisor` gives the on-device model only counts and category names and asks for one sentence.
 
 The Mac shows this in a Photos section with its own button (`PhotosView`); it is not part of Breathe, so the one tap never asks for the photo library. `AeriloMobile/MobileApp.swift` is the device app: the orb, a Device screen, and the log. `MobileIntents.swift` gives Siri and Shortcuts two actions: one opens Aerilo and starts a look through the library, the other says how much storage is free. Neither deletes anything.
 
