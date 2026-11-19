@@ -93,6 +93,51 @@ enum Cleaner {
         return home != nil
     }
 
+    // MARK: System temp folder access (sandbox)
+
+    private static let tempKey = "tempBookmark"
+    private static var scopedTemp: URL?
+
+    /// `/var/folders/xx/yyyy`, the per-user area that holds the C, T and X folders. Found from the
+    /// user cache folder, which inside the sandbox has the app's own name appended.
+    static var tempRootPath: String {
+        var parts = URL(fileURLWithPath: confstr(_CS_DARWIN_USER_CACHE_DIR)).standardizedFileURL.pathComponents
+        if let c = parts.lastIndex(of: "C") { parts.removeSubrange(c...) }
+        return NSString.path(withComponents: parts)
+    }
+
+    /// The per-user temp area when Aerilo may work inside it, else nil.
+    static var tempRoot: URL? {
+        if Env.isHomeOverridden { return nil }
+        if !Env.isSandboxed { return URL(fileURLWithPath: tempRootPath, isDirectory: true) }
+        if let scopedTemp { return scopedTemp }
+        guard let data = UserDefaults.standard.data(forKey: tempKey) else { return nil }
+        var stale = false
+        guard let url = try? URL(resolvingBookmarkData: data, options: .withSecurityScope, bookmarkDataIsStale: &stale),
+              url.startAccessingSecurityScopedResource() else { return nil }
+        scopedTemp = url
+        return url
+    }
+
+    /// Optional, App Store edition only: lets Aerilo clear the Chrome signing copy and test leftovers.
+    @MainActor static func requestTempAccess() -> Bool {
+        let root = URL(fileURLWithPath: tempRootPath, isDirectory: true)
+        let panel = NSOpenPanel()
+        panel.directoryURL = root
+        panel.showsHiddenFiles = true
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.allowsMultipleSelection = false
+        panel.prompt = "Allow"
+        panel.message = "This is your Mac's temporary folder. Click Allow without changing the selection so Aerilo can clear leftovers apps left inside it."
+        guard panel.runModal() == .OK, let url = panel.url,
+              url.resolvingSymlinksInPath().path == root.resolvingSymlinksInPath().path,
+              let data = try? url.bookmarkData(options: .withSecurityScope) else { return false }
+        UserDefaults.standard.set(data, forKey: tempKey)
+        scopedTemp = nil
+        return tempRoot != nil
+    }
+
     // MARK: Catalogue
 
     static func items() -> [CleanItem] {
@@ -141,21 +186,23 @@ enum Cleaner {
                       kind: .reveal(h("Library/Developer/Xcode/Archives"))),
         ]
 
-        if !Env.isSandboxed {
-            // /var/folders/xx/yy/{C,T,X}: the per-user cache, temp and code-sign-clone folders.
-            let userCache = URL(fileURLWithPath: confstr(_CS_DARWIN_USER_CACHE_DIR)).standardizedFileURL
-            let chromeClone = userCache.deletingLastPathComponent().appendingPathComponent("X/com.google.Chrome.code_sign_clone")
-            let temp = URL(fileURLWithPath: NSTemporaryDirectory())
-            let testOutput = ((try? fm.contentsOfDirectory(at: temp, includingPropertiesForKeys: nil)) ?? [])
+        // /var/folders/xx/yy/{C,T,X}: the per-user cache, temp and code-sign-clone folders. The
+        // App Store edition reaches them only after the user allows that folder too.
+        if let root = tempRoot {
+            let chromeClone = root.appendingPathComponent("X/com.google.Chrome.code_sign_clone")
+            let testOutput = ((try? fm.contentsOfDirectory(at: root.appendingPathComponent("T"), includingPropertiesForKeys: nil)) ?? [])
                 .filter { $0.lastPathComponent.hasPrefix("maestro_xctestrunner_") }
             list.insert(contentsOf: [
-                CleanItem(id: "simulators", name: "Unusable simulators", detail: "Simulators of iOS versions that are no longer installed.", tier: .safe,
-                          kind: .simulators, needsFullAccess: true),
                 CleanItem(id: "chromeclone", name: "Chrome signing copy", detail: "A copy Chrome leaves behind. Cleared only while Chrome is closed.", tier: .safe,
                           kind: .folders([chromeClone]), needsFullAccess: true, blocker: running(["Google Chrome"])),
                 CleanItem(id: "testoutput", name: "Test runner leftovers", detail: "Temporary output from UI test runs.", tier: .safe,
                           kind: .folders(testOutput), needsFullAccess: true, blocker: running(["xcodebuild", "maestro"], args: ["eas-cli", "maestro"])),
             ], at: 0)
+        }
+        if !Env.isSandboxed, !Env.isHomeOverridden {
+            // Simulators can only be removed through Xcode's own tool, which the sandbox cannot run.
+            list.insert(CleanItem(id: "simulators", name: "Unusable simulators", detail: "Simulators of iOS versions that are no longer installed.", tier: .safe,
+                                  kind: .simulators, needsFullAccess: true), at: 0)
             list.append(CleanItem(id: "runtimes", name: "Unused simulator versions", detail: "iOS versions that no simulator uses. Xcode downloads them again if you need them.",
                                   tier: .rebuildable, kind: .runtimes, needsFullAccess: true, blocker: running(["Simulator", "xcodebuild"])))
         }

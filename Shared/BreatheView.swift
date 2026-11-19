@@ -6,7 +6,7 @@ import SwiftUI
 /// motes gather toward it. Exhale (work done): it opens, rings spread out and the motes drift up and
 /// away like a breeze. With Reduce Motion on, only the orb's size changes, once per phase.
 struct BreatheOrb: View {
-    let phase: AppModel.Phase
+    let phase: BreathPhase
     let phaseStart: Date
     var diameter: CGFloat = 230
     let label: String
@@ -30,6 +30,7 @@ struct BreatheOrb: View {
             // At rest the orb is still, and Aerilo uses almost no processor (a constantly moving
             // glass surface measured about 18% of a core). It breathes a little when the pointer arrives.
             orb(scale: reduceMotion ? staticScale : (pulse ? 1.035 : 1), air: nil)
+                #if !os(tvOS)
                 .onHover { inside in
                     guard !reduceMotion, !CommandLine.arguments.contains("--no-hover") else { return }
                     if inside {
@@ -39,6 +40,7 @@ struct BreatheOrb: View {
                         withAnimation(.easeOut(duration: 0.8)) { pulse = false }
                     }
                 }
+                #endif
                 .onAppear { pulse = false }
         }
     }
@@ -58,7 +60,7 @@ struct BreatheOrb: View {
             .contentShape(.circle)
         }
         .buttonStyle(.plain)
-        .glassEffect(.regular.interactive(), in: .circle)
+        .aeriloGlass(in: .circle, interactive: true)
         .scaleEffect(scale)
         // Not `.disabled`, which would grey the label while the Mac is breathing.
         .allowsHitTesting(phase == .idle || phase == .done)

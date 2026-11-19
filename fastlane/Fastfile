@@ -1,9 +1,7 @@
 # Release automation for Aerilo. Nothing here runs by itself.
 #
-# Uses the team's App Store Connect API key as a fastlane JSON file. Default:
-# ~/.appstoreconnect/samio-asc-key.json (the key the Samio project uses); override with
-# ASC_API_KEY_PATH. Before the first upload, create the app record "Aerilo" with bundle id
-# app.aerilo.Aerilo in App Store Connect.
+# Before the first upload, create the app record "Aerilo" with bundle id app.aerilo.Aerilo in
+# App Store Connect.
 #
 #   fastlane mac screenshots   remake the screenshots from the app's demo mode
 #   fastlane mac beta          build the App Store edition and upload it to TestFlight
@@ -12,33 +10,109 @@
 
 default_platform(:mac)
 
+# The team's App Store Connect API key as a fastlane JSON file (key_id, issuer_id, key), with its
+# AuthKey_<key_id>.p8 beside it. Set ASC_API_KEY_PATH, or keep one .json in ~/.appstoreconnect.
+# fastlane cannot upload a listing until the version has an App Review record. This creates one
+# with the support address and a note for the reviewer; name and phone are added by hand.
+def ensure_review_detail(store_platform, note)
+  require "spaceship"
+  Spaceship::ConnectAPI.token = Spaceship::ConnectAPI::Token.from(filepath: asc_key_json)
+  app = Spaceship::ConnectAPI::App.find("app.aerilo.Aerilo")
+  version = app.get_edit_app_store_version(platform: store_platform)
+  return unless version
+  begin
+    return if version.fetch_app_store_review_detail
+  rescue StandardError
+    # none yet
+  end
+  # Apple requires a contact name and phone. Reuse the ones already on another app of this team
+  # (or REVIEW_FIRST_NAME, REVIEW_LAST_NAME, REVIEW_PHONE), so they never live in this repository.
+  first, last, phone = ENV["REVIEW_FIRST_NAME"], ENV["REVIEW_LAST_NAME"], ENV["REVIEW_PHONE"]
+  unless first && last && phone
+    Spaceship::ConnectAPI::App.all.each do |other|
+      next if other.bundle_id == "app.aerilo.Aerilo"
+      existing = (other.get_app_store_versions || []).filter_map { |v| v.fetch_app_store_review_detail rescue nil }.find { |d| d.contact_phone }
+      next unless existing
+      first, last, phone = existing.contact_first_name, existing.contact_last_name, existing.contact_phone
+      break
+    end
+  end
+  UI.user_error!("Set REVIEW_FIRST_NAME, REVIEW_LAST_NAME and REVIEW_PHONE for the App Review contact") unless first && last && phone
+  version.create_app_store_review_detail(attributes: {
+    contact_first_name: first, contact_last_name: last, contact_phone: phone,
+    contact_email: "info@geekcow.com", demo_account_required: false, notes: note
+  })
+end
+
+MAC_REVIEW_NOTE = "Aerilo asks the user to select their Home folder once so it can measure and clear cache folders inside it. It deletes nothing until the user presses Breathe or Clear, never touches documents, and never quits another app. Photo tidying deletes only what the user reviews and confirms."
+DEVICE_REVIEW_NOTE = "Aerilo looks through the photo library on the device for duplicates, similar shots, old screenshots and large videos. Nothing is uploaded. It deletes only what the user reviews and confirms through the system dialog."
+
+def asc_key_json
+  path = ENV["ASC_API_KEY_PATH"] || Dir[File.expand_path("~/.appstoreconnect/*.json")].first
+  UI.user_error!("No App Store Connect key: set ASC_API_KEY_PATH or put the key's .json in ~/.appstoreconnect") unless path && File.exist?(path)
+  path
+end
+
+# Lets xcodebuild sign in to Apple with the API key, so it can create the distribution certificates
+# and profiles itself (cloud-managed signing) instead of needing an account in Xcode's settings.
+def signing_args
+  require "json"
+  json = asc_key_json
+  key = JSON.parse(File.read(json))
+  p8 = File.join(File.dirname(json), "AuthKey_#{key['key_id']}.p8")
+  "-allowProvisioningUpdates -authenticationKeyPath #{p8.shellescape} -authenticationKeyID #{key['key_id']} -authenticationKeyIssuerID #{key['issuer_id']}"
+end
+
 platform :mac do
   def api_key
-    app_store_connect_api_key_path = ENV["ASC_API_KEY_PATH"] || File.expand_path("~/.appstoreconnect/samio-asc-key.json")
-    UI.user_error!("No App Store Connect key at #{app_store_connect_api_key_path}") unless File.exist?(app_store_connect_api_key_path)
-    app_store_connect_api_key_path
-  end
-
-  def bump
-    increment_build_number(xcodeproj: "Aerilo.xcodeproj", build_number: Time.now.strftime("%Y%m%d%H%M"))
+    asc_key_json
   end
 
   lane :screenshots do
     sh("cd .. && xcodebuild -project Aerilo.xcodeproj -scheme AeriloDirect -configuration Debug -derivedDataPath build build -quiet && scripts/screenshots.sh")
   end
 
+  # Creates (or reuses) what the Mac App Store needs to sign a build: the Apple Distribution and
+  # Mac Installer Distribution certificates, and the store provisioning profile.
+  lane :signing do
+    key = api_key
+    # Installer first: the profile step uses whichever certificate was fetched last, and it must be the app one.
+    cert(api_key_path: key, platform: "macos", type: "mac_installer_distribution", output_path: "build/certs")
+    cert(api_key_path: key, platform: "macos", output_path: "build/certs")
+    sigh(api_key_path: key, platform: "macos", app_identifier: "app.aerilo.Aerilo", output_path: "build/certs")
+  end
+
   lane :build_store do
-    bump
+    signing
+    profile = lane_context[SharedValues::SIGH_NAME]
     build_mac_app(
       project: "Aerilo.xcodeproj", scheme: "Aerilo", configuration: "Release",
-      export_method: "app-store", output_directory: "build/store",
-      xcargs: "-allowProvisioningUpdates"
+      output_directory: "build/store",
+      xcargs: "CURRENT_PROJECT_VERSION=#{Time.now.strftime('%Y%m%d%H%M')} -allowProvisioningUpdates",
+      export_options: {
+        method: "app-store",
+        signingStyle: "manual",
+        provisioningProfiles: { "app.aerilo.Aerilo" => profile },
+        signingCertificate: "Apple Distribution",
+        installerSigningCertificate: "3rd Party Mac Developer Installer"
+      }
     )
   end
 
   lane :beta do
     build_store
     upload_to_testflight(api_key_path: api_key, skip_waiting_for_build_processing: true)
+  end
+
+  # Listing only: text, categories and screenshots, no build.
+  lane :listing do
+    ensure_review_detail("MAC_OS", MAC_REVIEW_NOTE)
+    upload_to_app_store(
+      api_key_path: api_key, platform: "osx", app_version: "1.0.1",
+      metadata_path: "fastlane/metadata", screenshots_path: "fastlane/screenshots",
+      skip_binary_upload: true, overwrite_screenshots: true,
+      submit_for_review: false, force: true, run_precheck_before_submit: false
+    )
   end
 
   lane :release do
@@ -59,4 +133,54 @@ platform :mac do
   lane :direct do |options|
     sh("cd .. && scripts/release.sh #{(options[:notes] || 'Improvements and fixes.').shellescape}")
   end
+end
+
+# iPhone and iPad, Apple TV, Apple Vision Pro: one target (AeriloMobile), the same bundle id as the
+# Mac App Store edition, so all of them sit on one App Store listing.
+#   fastlane devices_beta platform:ios        (or tvos, visionos) build and send to TestFlight
+#   fastlane devices_release platform:ios     upload build, text and screenshots; does NOT submit
+lane :devices_build do |options|
+  platform = options[:platform] || "ios"
+  destination = { "ios" => "generic/platform=iOS", "tvos" => "generic/platform=tvOS", "visionos" => "generic/platform=visionOS" }.fetch(platform)
+  build_app(
+    project: "Aerilo.xcodeproj", scheme: "AeriloMobile", configuration: "Release",
+    destination: destination, export_method: "app-store", output_directory: "build/#{platform}",
+    xcargs: "CURRENT_PROJECT_VERSION=#{Time.now.strftime('%Y%m%d%H%M')} #{signing_args}"
+  )
+end
+
+lane :devices_beta do |options|
+  devices_build(options)
+  key = asc_key_json
+  store_platform = { "ios" => "ios", "tvos" => "appletvos", "visionos" => "xros" }.fetch(options[:platform] || "ios")
+  upload_to_testflight(api_key_path: key, app_platform: store_platform, skip_waiting_for_build_processing: true)
+end
+
+lane :devices_release do |options|
+  devices_build(options)
+  key = asc_key_json
+  platform = options[:platform] || "ios"
+  store_platform = { "ios" => "ios", "tvos" => "appletvos", "visionos" => "xros" }.fetch(platform)
+  upload_to_app_store(
+    api_key_path: key, platform: store_platform,
+    metadata_path: "fastlane/metadata-devices",
+    screenshots_path: "fastlane/screenshots-#{platform}",
+    skip_screenshots: !Dir.exist?("screenshots-#{platform}"),
+    overwrite_screenshots: true, submit_for_review: false, force: true,
+    precheck_include_in_app_purchases: false
+  )
+end
+
+# Listing only for the device platforms: text, categories and screenshots, no build.
+lane :devices_listing do |options|
+  platform = options[:platform] || "ios"
+  store_platform = { "ios" => "ios", "tvos" => "appletvos", "visionos" => "xros" }.fetch(platform)
+  ensure_review_detail({ "ios" => "IOS", "tvos" => "TV_OS", "visionos" => "VISION_OS" }.fetch(platform), DEVICE_REVIEW_NOTE)
+  upload_to_app_store(
+    api_key_path: asc_key_json, platform: store_platform, app_version: "1.0.1",
+    app_identifier: "app.aerilo.Aerilo",
+    metadata_path: "fastlane/metadata-devices", screenshots_path: "fastlane/screenshots-#{platform}",
+    skip_binary_upload: true, overwrite_screenshots: true,
+    submit_for_review: false, force: true, run_precheck_before_submit: false
+  )
 end

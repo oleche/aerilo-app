@@ -82,9 +82,8 @@ enum Advisor {
         let fallback = rules(sys: sys, findings: findings)
         guard isReady, !findings.isEmpty else { return fallback }
         let prompt = context(sys: sys, findings: findings, freed: freed)
-        let generated: ModelPlan? = await withTimeout(seconds: 20) {
-            let session = LanguageModelSession(instructions: instructions)
-            return try await session.respond(to: prompt, generating: ModelPlan.self).content
+        let generated: ModelPlan? = await Timeout.run(seconds: 20) {
+            try? await LanguageModelSession(instructions: instructions).respond(to: prompt, generating: ModelPlan.self).content
         }
         guard let generated else { return fallback }
 
@@ -116,22 +115,8 @@ enum Advisor {
     static func answer(_ question: String, sys: SystemSnapshot, findings: [Finding], freed: Int64) async -> String? {
         guard isReady else { return nil }
         let grounding = instructions + "\nAnswer the question in at most four sentences, using only these facts:\n" + context(sys: sys, findings: findings, freed: freed)
-        return await withTimeout(seconds: 30) {
-            let session = LanguageModelSession(instructions: grounding)
-            return try await session.respond(to: question).content
-        }
-    }
-
-    private static func withTimeout<T: Sendable>(seconds: Double, _ work: @escaping @Sendable () async throws -> T) async -> T? {
-        await withTaskGroup(of: T?.self) { group in
-            group.addTask { try? await work() }
-            group.addTask {
-                try? await Task.sleep(for: .seconds(seconds))
-                return nil
-            }
-            let first = await group.next() ?? nil
-            group.cancelAll()
-            return first
+        return await Timeout.run(seconds: 30) {
+            try? await LanguageModelSession(instructions: grounding).respond(to: question).content
         }
     }
 }

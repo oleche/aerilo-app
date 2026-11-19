@@ -8,8 +8,7 @@
 # --notarize needs:
 #   - a "Developer ID Application" certificate in the keychain
 #   - the App Store Connect API key as a fastlane JSON file (key_id, issuer_id) with its
-#     AuthKey_<key_id>.p8 beside it. Default: ~/.appstoreconnect/samio-asc-key.json, the same
-#     team key the Samio project uses. Override with ASC_API_KEY_PATH.
+#     AuthKey_<key_id>.p8 beside it. Set ASC_API_KEY_PATH, or keep one .json in ~/.appstoreconnect.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 NOTARIZE=${1:-}
@@ -33,8 +32,8 @@ hdiutil create -volname "Aerilo" -srcfolder "$STAGE" -ov -format UDZO "$DMG" >/d
 
 if [[ "$NOTARIZE" == "--notarize" ]]; then
   codesign --force --timestamp --sign "$IDENTITY" "$DMG"
-  KEY_JSON=${ASC_API_KEY_PATH:-$HOME/.appstoreconnect/samio-asc-key.json}
-  [[ -f "$KEY_JSON" ]] || { echo "No App Store Connect key at $KEY_JSON"; exit 1; }
+  KEY_JSON=${ASC_API_KEY_PATH:-$(ls "$HOME"/.appstoreconnect/*.json 2>/dev/null | head -1)}
+  [[ -n "$KEY_JSON" && -f "$KEY_JSON" ]] || { echo "No App Store Connect key: set ASC_API_KEY_PATH or put its .json in ~/.appstoreconnect"; exit 1; }
   KEY_ID=$(python3 -c "import json,sys; print(json.load(open(sys.argv[1]))['key_id'])" "$KEY_JSON")
   ISSUER=$(python3 -c "import json,sys; print(json.load(open(sys.argv[1]))['issuer_id'])" "$KEY_JSON")
   xcrun notarytool submit "$DMG" --key "$(dirname "$KEY_JSON")/AuthKey_$KEY_ID.p8" --key-id "$KEY_ID" --issuer "$ISSUER" --wait

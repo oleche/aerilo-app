@@ -1,0 +1,29 @@
+Aerilo is one button for a lighter photo library.
+
+Tap Breathe. Aerilo looks through your photos and videos and gathers the ones you probably don't need. You review them, tick or untick, and decide what goes.
+
+WHAT IT FINDS
+• Exact duplicates: the same picture saved more than once. Aerilo keeps one of each.
+• Similar shots: pictures taken seconds apart that look nearly the same. Aerilo suggests the best one to keep.
+• Old screenshots: screenshots older than 30 days.
+• Largest videos: the ones taking the most space. None are ticked for you.
+
+YOU STAY IN CHARGE
+• Nothing is deleted until you review it and tap Delete, and the system asks you to confirm.
+• Deleted items stay in Recently Deleted for 30 days, so you can bring them back.
+• While it works, Aerilo says what it is doing, step by step.
+
+PRIVATE
+• Photos are compared on your device. Nothing is uploaded.
+• No account, no analytics, no ads.
+
+A RECORD YOU CAN SHARE
+Everything Aerilo looked at and everything you asked it to delete is written to a log on your device. Share it with support or keep it as a record.
+
+ALSO IN THE APP
+A Device screen with free storage, temperature, battery and Low Power Mode.
+
+GOOD TO KNOW
+Aerilo for iPhone, iPad, Apple TV and Apple Vision Pro tidies photos and storage. It does not speed up your device or manage other apps; these systems do that by themselves. Aerilo for Mac goes further and also finds what is slowing your Mac down.
+
+Aerilo is free and open source.

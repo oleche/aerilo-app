@@ -5,7 +5,12 @@ Tap Breathe. Your Mac breathes in while Aerilo measures what weighs on it, then 
 ONE TAP
 • Clears leftovers that rebuild themselves: old app installers, build data and package caches.
 • Checks memory, memory pressure, storage, processor load and how long your Mac has run without a restart.
-• Shows a single health score, in the window and in the menu bar.
+• Shows a single health score out of 100, and says what is pulling it down.
+
+SEE WHAT WEIGHS ON YOUR MAC
+• Memory and processor use for every app, with its helpers counted together.
+• Spots apps that are stuck on the processor and apps whose memory keeps growing, the usual sign of a leak.
+• One click brings the app forward so you can quit it.
 
 IT THINKS BEFORE IT ACTS
 Aerilo uses Apple Intelligence on your Mac to look at everything together, choose what helps most, and explain it in one plain sentence. You can ask it questions such as "Why is my Mac slow today?". On Macs without Apple Intelligence, Aerilo ranks the same findings with built-in rules.
@@ -16,6 +21,9 @@ SAFE BY DESIGN
 • Larger caches are yours to tick. Anything that could matter is only shown in Finder and never deleted.
 • An item is skipped while the app that owns it is working.
 • Aerilo never quits an app by itself.
+
+PHOTOS TOO
+Aerilo can look through your Photos library for duplicates, similar shots, old screenshots and large videos. You review them first; nothing is deleted until you choose.
 
 NO MYSTERY
 • While it works, Aerilo says what it is doing, step by step.
@@ -29,6 +37,6 @@ Say "Breathe with Aerilo" or add "Let My Mac Breathe" and "Check Mac Health" to 
 
 GOOD TO KNOW
 • To clear caches, Aerilo asks you once to allow your Home folder. Apple requires this of every App Store app. Notifications and opening at login are optional and off until you turn them on.
-• Apple does not let App Store apps read other apps' memory, processor or network use. The open-source edition at aerilo.app adds per-app activity, stuck-app and growing-memory detection, and per-app network use.
+• Apple does not let App Store apps quit other apps, read per-app network traffic, or remove Xcode simulators. The open-source edition at aerilo.app adds those three.
 
 Aerilo is free.

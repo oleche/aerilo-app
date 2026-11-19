@@ -31,7 +31,7 @@ struct ActivityView: View {
 
     var body: some View {
         let sorted = model.groups.sorted { byCPU ? $0.cpu > $1.cpu : $0.footprint > $1.footprint }.prefix(14)
-        Page(title: "Activity", subtitle: "Apps and background processes, heaviest first. Helpers are counted with their app.") {
+        Page(title: "Activity", subtitle: "Apps and background processes, heaviest first. Helpers are counted with their app." + (Env.isSandboxed ? " Memory is resident size, a little lower than Activity Monitor shows." : "")) {
             GlassEffectContainer(spacing: 12) {
                 HStack(spacing: 12) {
                     Chip(icon: "memorychip", value: "\(Fmt.mem(model.sys.memUsed)) of \(Fmt.mem(model.sys.memTotal))",
@@ -42,7 +42,7 @@ struct ActivityView: View {
             }
 
             if !model.processesReadable {
-                Label("macOS hides other apps' memory and processor use from App Store apps. The version from aerilo.app shows every process and can stop the ones that are stuck.", systemImage: "info.circle").foregroundStyle(.secondary).glassCard()
+                Label("macOS isn't letting Aerilo read process details right now.", systemImage: "info.circle").foregroundStyle(.secondary).glassCard()
             } else {
                 VStack(spacing: 0) {
                     HStack {
@@ -110,18 +110,28 @@ struct ActivityView: View {
                       tint: group.footprint > model.sys.memTotal / 8 ? .orange : .accentColor)
             }
             .frame(width: 96)
-            Menu {
-                Button("Quit") {
-                    if let pid = group.mainPID { model.stop(pid: pid, force: false) }
-                    Task { try? await Task.sleep(for: .seconds(1.5)); await model.refresh() }
+            if Env.isSandboxed {
+                // The App Store does not let one app quit another, so bring it forward instead.
+                Button("Show") {
+                    if let pid = group.mainPID { NSRunningApplication(processIdentifier: pid)?.activate() }
                 }
-                Button("Force Quit…", role: .destructive) { confirm = group }
-            } label: {
-                Image(systemName: "ellipsis.circle")
+                .buttonStyle(.glass).controlSize(.small)
+                .disabled(!group.isApp || Rules.protected.contains(group.name))
+                .help("Bring this app to the front so you can quit it")
+            } else {
+                Menu {
+                    Button("Quit") {
+                        if let pid = group.mainPID { model.stop(pid: pid, force: false) }
+                        Task { try? await Task.sleep(for: .seconds(1.5)); await model.refresh() }
+                    }
+                    Button("Force Quit…", role: .destructive) { confirm = group }
+                } label: {
+                    Image(systemName: "ellipsis.circle")
+                }
+                .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
+                .disabled(!canStop)
+                .help(canStop ? "Quit or force quit" : "macOS needs this one")
             }
-            .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
-            .disabled(!canStop)
-            .help(canStop ? "Quit or force quit" : "macOS needs this one")
         }
         .padding(.vertical, 8)
     }
@@ -140,7 +150,7 @@ struct NetworkView: View {
                     Chip(icon: "arrow.up", value: Fmt.rate(model.sys.netOut), label: "upload")
                 }
             }
-            if NetworkProbe.isAvailable || Env.isDemo {
+            if NetworkProbe.isAvailable {
                 VStack(spacing: 0) {
                     if model.net.isEmpty {
                         Text("Nothing is using the network at the moment.").foregroundStyle(.secondary).frame(maxWidth: .infinity, alignment: .leading)
@@ -161,7 +171,7 @@ struct NetworkView: View {
                 }
                 .glassCard()
             } else {
-                Label("The App Store version shows total traffic. Per-app traffic needs the version from aerilo.app, because macOS only shares it outside the App Store sandbox.", systemImage: "info.circle")
+                Label("This edition shows total traffic. macOS only shares per-app traffic with apps outside the App Store, so that part is in the edition from aerilo.app.", systemImage: "info.circle")
                     .foregroundStyle(.secondary).glassCard()
             }
         }

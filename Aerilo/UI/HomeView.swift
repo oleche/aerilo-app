@@ -14,6 +14,7 @@ struct RootView: View {
                 case .activity: ActivityView()
                 case .network: NetworkView()
                 case .storage: StorageView()
+                case .photos: PhotosView()
                 case .assistant: AssistantView()
                 case .log: LogView()
                 }
@@ -71,10 +72,17 @@ struct HomeView: View {
                 Text(model.sys.healthWord.uppercased())
                     .font(.system(.caption, design: .rounded, weight: .semibold)).kerning(2.5)
                     .foregroundStyle(.secondary)
-                Text(done ? (model.advice?.headline ?? "Your Mac can breathe again.") : "Your Mac is at \(model.sys.health)")
+                Text(done ? (model.advice?.headline ?? "Your Mac can breathe again.") : "Health: \(model.sys.health) out of 100")
                     .font(.system(size: done ? 26 : 30, weight: .medium, design: .rounded))
                     .multilineTextAlignment(.center)
                     .contentTransition(.opacity)
+                if !done {
+                    // Say what the score is made of, so it is never just a number.
+                    let reasons = model.sys.healthReasons.prefix(3)
+                    Text(reasons.isEmpty ? "Nothing is holding your Mac back." : "Lower because " + reasons.joined(separator: ", ") + ".")
+                        .font(.callout).foregroundStyle(.secondary).multilineTextAlignment(.center)
+                        .frame(maxWidth: 520)
+                }
             }
             .padding(.horizontal, 40)
 

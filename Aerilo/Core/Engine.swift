@@ -7,6 +7,7 @@ import SwiftUI
 struct Finding: Identifiable {
     enum Action {
         case quit(pid: pid_t, name: String)
+        case show(pid: pid_t, name: String)
         case clean([String])
         case open(URL)
         case grantAccess
@@ -57,6 +58,8 @@ enum Rules {
         let canStop: (AppGroup) -> Bool = { $0.isApp || !Env.isSandboxed }
         func quitAction(_ g: AppGroup) -> (Finding.Action?, String?) {
             guard let pid = g.mainPID, canStop(g), !protected.contains(g.name) else { return (nil, nil) }
+            // App Store apps may not quit other apps, so there Aerilo brings the app forward for you to quit.
+            if Env.isSandboxed { return (.show(pid: pid, name: g.name), "Show \(g.name)") }
             return (.quit(pid: pid, name: g.name), g.isApp ? "Quit \(g.name)" : "Stop")
         }
 
@@ -156,8 +159,8 @@ enum Rules {
 final class AppModel {
     static let shared = AppModel()
 
-    enum Phase { case idle, inhale, exhale, done }
-    enum Screen: String, CaseIterable { case home = "Breathe", activity = "Activity", network = "Network", storage = "Storage", assistant = "Assistant", log = "Log" }
+    typealias Phase = BreathPhase
+    enum Screen: String, CaseIterable { case home = "Breathe", activity = "Activity", network = "Network", storage = "Storage", photos = "Photos", assistant = "Assistant", log = "Log" }
 
     var phase: Phase = .idle
     var phaseStart = Date()
@@ -179,6 +182,7 @@ final class AppModel {
     var lastCleaned: [String] = []
     var lastRun: Date?
     var hasHome = Cleaner.home != nil
+    var hasTemp = Cleaner.tempRoot != nil
     var processesReadable = true
     var updatePrepared = false
     /// What Aerilo is doing right now, in plain words, and the steps of the current run so far.
@@ -229,7 +233,6 @@ final class AppModel {
         sys = s
         Notifier.check(s)
         procs = p
-        // Inside the App Store sandbox only Aerilo's own usage is readable.
         processesReadable = readable > 1
         groups = Rules.groups(p, apps: runningApps())
     }
@@ -275,7 +278,8 @@ final class AppModel {
         guard !Env.isDemo, !cleaning else { return 0 }
         cleaning = true
         defer { cleaning = false }
-        let procsNow = procs
+        // A test run on a stand-in home must not depend on which apps happen to be open.
+        let procsNow = Env.isHomeOverridden ? [] : procs
         var freed: Int64 = 0
         var names: [String] = []
         for item in items where ids.contains(item.id) && item.tier != .ask {
@@ -359,6 +363,10 @@ final class AppModel {
             stop(pid: pid, force: false)
             try? await Task.sleep(for: .seconds(1.5))
             await refresh()
+        case .show(let pid, let name):
+            NSRunningApplication(processIdentifier: pid)?.activate()
+            Audit.record("action.show", ["name": name])
+            return
         case .clean(let ids):
             lastFreed += await clean(ids: Set(ids), reason: "suggestion")
             activity = ""
@@ -389,6 +397,13 @@ final class AppModel {
         }
         Audit.record("action.quit", ["name": name, "pid": Int(pid), "force": force, "accepted": accepted])
         return accepted
+    }
+
+    func grantTemp() async {
+        let granted = Cleaner.requestTempAccess()
+        Audit.record("access.temp", ["granted": granted])
+        hasTemp = Cleaner.tempRoot != nil
+        if granted { await measureStorage() }
     }
 
     func grantHome() async {

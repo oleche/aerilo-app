@@ -2,28 +2,6 @@ import AppKit
 import Darwin
 import Foundation
 
-// MARK: - Environment
-
-enum Env {
-    /// True in the Mac App Store build. The sandbox decides which features can run.
-    static let isSandboxed = ProcessInfo.processInfo.environment["APP_SANDBOX_CONTAINER_ID"] != nil
-    static let isDemo = CommandLine.arguments.contains("--demo")
-
-    /// The user's real home folder. Inside the sandbox `NSHomeDirectory()` is the app container.
-    static let realHome: URL = {
-        if let pw = getpwuid(getuid()), let dir = pw.pointee.pw_dir {
-            return URL(fileURLWithPath: String(cString: dir), isDirectory: true)
-        }
-        return FileManager.default.homeDirectoryForCurrentUser
-    }()
-
-    static func arg(_ name: String) -> String? {
-        let args = CommandLine.arguments
-        guard let i = args.firstIndex(of: name), i + 1 < args.count else { return nil }
-        return args[i + 1]
-    }
-}
-
 // MARK: - System
 
 struct SystemSnapshot {
@@ -62,6 +40,24 @@ struct SystemSnapshot {
         }
         if uptime > 14 * 86_400 { score -= 5 }
         return Int(max(5, min(100, score)).rounded())
+    }
+
+    /// Why the score is below 100, biggest cost first, in plain words. Mirrors `health` exactly.
+    var healthReasons: [String] {
+        var parts: [(Double, String)] = []
+        if pressure >= 4 { parts.append((30, "memory pressure is critical")) } else if pressure >= 2 { parts.append((15, "memory pressure is high")) }
+        let full = max(0, memFraction - 0.75) * 60
+        if full >= 1 { parts.append((full, "memory is \(Int(memFraction * 100))% full")) }
+        let swap = min(15, Double(swapUsed) / 1_073_741_824 * 2)
+        if swap >= 1 { parts.append((swap, "\(Fmt.mem(swapUsed)) was moved to disk")) }
+        let busy = max(0, cpuLoad - 0.5) * 40
+        if busy >= 1 { parts.append((busy, "the processor is \(Int(cpuLoad * 100))% busy")) }
+        if diskFreeFraction < 0.05 { parts.append((25, "storage is almost full")) }
+        else if diskFreeFraction < 0.10 { parts.append((15, "less than 10% of storage is free")) }
+        else if diskFreeFraction < 0.20 { parts.append((6, "less than 20% of storage is free")) }
+        if thermal == .critical { parts.append((20, "the Mac is very hot")) } else if thermal == .serious { parts.append((10, "the Mac is hot")) }
+        if uptime > 14 * 86_400 { parts.append((5, "\(Fmt.uptime(uptime)) without a restart")) }
+        return parts.sorted { $0.0 > $1.0 }.map(\.1)
     }
 
     var healthWord: String {
@@ -206,6 +202,8 @@ final class ProcessProbe: @unchecked Sendable {
 
     /// How many processes exposed their resource usage on the last sample (0 means the sandbox blocks it).
     private(set) var readable = 0
+    /// True when memory figures are resident size, as they are inside the App Store sandbox.
+    private(set) var residentOnly = false
 
     func sample() -> [ProcInfo] {
         lock.lock(); defer { lock.unlock() }
@@ -213,6 +211,7 @@ final class ProcessProbe: @unchecked Sendable {
         var out: [ProcInfo] = []
         var alive = Set<pid_t>()
         var ok = 0
+        var usedFallback = false
 
         for kp in Self.listOwnProcesses() {
             let pid = kp.kp_proc.p_pid
@@ -232,22 +231,40 @@ final class ProcessProbe: @unchecked Sendable {
             info.isZombie = kp.kp_proc.p_stat == 5 // SZOMB
             info.ownerApp = Self.ownerApp(of: path)
 
+            // Two ways to read a process's usage. The first gives the same "memory footprint"
+            // Activity Monitor shows, but the App Store sandbox only answers it for Aerilo itself.
+            // The second works inside the sandbox too and gives resident memory, which leaves out
+            // compressed pages and so reads a little lower.
+            var ns: UInt64?
+            var started: UInt64 = 0
             var ru = rusage_info_v4()
             let r = withUnsafeMutablePointer(to: &ru) {
                 $0.withMemoryRebound(to: rusage_info_t?.self, capacity: 1) { proc_pid_rusage(pid, RUSAGE_INFO_V4, $0) }
             }
             if r == 0 {
-                ok += 1
                 info.footprint = ru.ri_phys_footprint
-                let ns = (ru.ri_user_time + ru.ri_system_time) * UInt64(timebase.numer) / UInt64(timebase.denom)
-                if let p = prevCPU[pid], p.start == ru.ri_proc_start_abstime, ns >= p.ns {
+                ns = (ru.ri_user_time + ru.ri_system_time) * UInt64(timebase.numer) / UInt64(timebase.denom)
+                started = ru.ri_proc_start_abstime
+            } else {
+                var task = proc_taskinfo()
+                let want = Int32(MemoryLayout<proc_taskinfo>.size)
+                if proc_pidinfo(pid, PROC_PIDTASKINFO, 0, &task, want) == want {
+                    info.footprint = task.pti_resident_size
+                    ns = (task.pti_total_user + task.pti_total_system) * UInt64(timebase.numer) / UInt64(timebase.denom)
+                    started = UInt64(kp.kp_proc.p_starttime.tv_sec)
+                    usedFallback = true
+                }
+            }
+            if let ns {
+                ok += 1
+                if let p = prevCPU[pid], p.start == started, ns >= p.ns {
                     let dt = now.timeIntervalSince(p.at)
                     if dt > 0.05 { info.cpu = Double(ns - p.ns) / 1e9 / dt * 100 }
                 } else {
                     history[pid] = nil
                     hotSince[pid] = nil
                 }
-                prevCPU[pid] = (ns, now, ru.ri_proc_start_abstime)
+                prevCPU[pid] = (ns, now, started)
 
                 if info.cpu >= 90 {
                     if hotSince[pid] == nil { hotSince[pid] = now }
@@ -270,6 +287,7 @@ final class ProcessProbe: @unchecked Sendable {
             out.append(info)
         }
         readable = ok
+        residentOnly = usedFallback
         for pid in prevCPU.keys where !alive.contains(pid) {
             prevCPU[pid] = nil; history[pid] = nil; hotSince[pid] = nil
         }
@@ -394,26 +412,5 @@ enum Shell {
         killer.cancel()
         guard p.terminationStatus == 0 else { return nil }
         return String(decoding: data, as: UTF8.self)
-    }
-}
-
-// MARK: - Formatting
-
-enum Fmt {
-    static func bytes(_ n: Int64) -> String {
-        ByteCountFormatter.string(fromByteCount: n, countStyle: .file)
-    }
-    static func bytes(_ n: UInt64) -> String { bytes(Int64(min(n, UInt64(Int64.max)))) }
-    static func mem(_ n: UInt64) -> String {
-        ByteCountFormatter.string(fromByteCount: Int64(min(n, UInt64(Int64.max))), countStyle: .memory)
-    }
-    static func rate(_ bytesPerSecond: Double) -> String {
-        bytes(Int64(bytesPerSecond)) + "/s"
-    }
-    static func uptime(_ t: TimeInterval) -> String {
-        let days = Int(t / 86_400)
-        if days >= 1 { return days == 1 ? "1 day" : "\(days) days" }
-        let hours = Int(t / 3600)
-        return hours <= 1 ? "1 hour" : "\(hours) hours"
     }
 }

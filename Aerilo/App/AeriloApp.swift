@@ -15,6 +15,9 @@ enum Main {
 
     static func main() {
         setvbuf(stdout, nil, _IONBF, 0)
+        if CommandLine.arguments.contains("--breathe-test") {
+            exit(BreatheTest.run() ? 0 : 1)
+        }
         if CommandLine.arguments.contains("--selftest") {
             SelfTest.run()
             exit(0)
@@ -152,7 +155,10 @@ struct MenuPanel: View {
             HStack(alignment: .firstTextBaseline) {
                 Text(model.sys.healthWord).font(.system(.title2, design: .rounded, weight: .semibold))
                 Spacer()
-                Text("\(model.sys.health)").font(.system(.title2, design: .rounded)).monospacedDigit().foregroundStyle(.secondary)
+                Text("\(model.sys.health) of 100").font(.system(.title3, design: .rounded)).monospacedDigit().foregroundStyle(.secondary)
+            }
+            if let reason = model.sys.healthReasons.first {
+                Text("Mostly because \(reason).").font(.caption).foregroundStyle(.secondary)
             }
             VStack(spacing: 8) {
                 stat("Memory", "\(Int(model.sys.memFraction * 100))%", model.sys.memFraction)
@@ -218,7 +224,7 @@ enum SelfTest {
         print("top three by memory (names withheld): \(top.joined(separator: " | "))")
         let net = NetworkProbe.sample()
         print("per-process network rows: \(net.count)")
-        print("home access: \(Cleaner.home != nil)")
+        print("home access: \(Cleaner.home != nil)  temp access: \(Cleaner.tempRoot != nil)  temp root depth: \(Cleaner.tempRootPath.split(separator: "/").count), safe to clean inside: \(Cleaner.isSafeTarget(URL(fileURLWithPath: Cleaner.tempRootPath + "/X/com.google.Chrome.code_sign_clone")))")
         for item in Cleaner.items() {
             print("  [\(item.tier)] \(item.id): \(Fmt.bytes(Cleaner.measure(item)))\(item.blocker(procs).map { " (blocked: \($0))" } ?? "")")
         }
@@ -261,6 +267,43 @@ enum SelfTest {
         try? FileManager.default.removeItem(at: copy)
         let log = Audit.entries()
         print("log: \(log.count) entries, \(log.filter { !$0.intact }.count) broken, at …/\(Audit.fileURL.pathComponents.suffix(3).joined(separator: "/"))")
+        if let folder = Env.arg("--photo-compare") {
+            func load(_ name: String) -> PhotoScanner.Look? {
+                NSImage(contentsOfFile: "\(folder)/\(name)")?.cgImage(forProposedRect: nil, context: nil, hints: nil).map { PhotoScanner.look(at: $0) }
+            }
+            let burst = (0..<3).compactMap { load("burst-\($0).jpg") }
+            let singles = (0..<3).compactMap { load("single-\($0).jpg") }
+            func hashOnly(_ l: PhotoScanner.Look) -> PhotoScanner.Look { PhotoScanner.Look(print: nil, hash: l.hash) }
+            if burst.count == 3, singles.count == 3 {
+                let pairs = [(burst[0], burst[1]), (burst[1], burst[2])]
+                let strangers = [(burst[2], singles[0]), (singles[0], singles[1]), (singles[1], singles[2])]
+                print("feature prints available here: \(burst[0].print != nil)")
+                print("burst shots judged alike: with prints \(pairs.allSatisfy { PhotoScanner.alike($0.0, $0.1) }), hash only \(pairs.allSatisfy { PhotoScanner.alike(hashOnly($0.0), hashOnly($0.1)) })")
+                print("unrelated pictures kept apart: with prints \(strangers.allSatisfy { !PhotoScanner.alike($0.0, $0.1) }), hash only \(strangers.allSatisfy { !PhotoScanner.alike(hashOnly($0.0), hashOnly($0.1)) })")
+                func gap(_ a: PhotoScanner.Look, _ b: PhotoScanner.Look) -> String {
+                    var d: Float = -1
+                    if let pa = a.print, let pb = b.print { try? pa.computeDistance(&d, to: pb) }
+                    return String(format: "%.2f", d)
+                }
+                print("feature print distances: burst \(pairs.map { gap($0.0, $0.1) }), unrelated \(strangers.map { gap($0.0, $0.1) })")
+                print("hash bit differences: burst \(pairs.map { ($0.0.hash! ^ $0.1.hash!).nonzeroBitCount }), unrelated \(strangers.map { ($0.0.hash! ^ $0.1.hash!).nonzeroBitCount })")
+            } else {
+                print("photo compare: test pictures not found in \(folder)")
+            }
+        }
+        let timing = DispatchSemaphore(value: 0)
+        Task.detached {
+            let began = Date()
+            let stuck: Int? = await Timeout.run(seconds: 1) {
+                // Work that ignores cancellation, like a model call that never answers.
+                await Task.detached { Thread.sleep(forTimeInterval: 3) }.value
+                return 1
+            }
+            let quick: Int? = await Timeout.run(seconds: 5) { 7 }
+            print("timeout gives up on stuck work: \(stuck == nil && Date().timeIntervalSince(began) < 2)  passes a result through: \(quick == 7)")
+            timing.signal()
+        }
+        timing.wait()
         switch Advisor.status {
         case .ready: print("on-device model: ready")
         case .unavailable(let why): print("on-device model: unavailable (\(why))")
@@ -279,6 +322,84 @@ enum SelfTest {
                 done.signal()
             }
             done.wait()
+            let photos = DispatchSemaphore(value: 0)
+            Task.detached {
+                let facts = PhotoAdvisor.facts([("Exact duplicates", 11, 46_000_000, 6), ("Similar shots", 22, 120_000_000, 16),
+                                                ("Old screenshots", 48, 472_000_000, 48), ("Largest videos", 12, 17_800_000_000, 0)], total: 12_480)
+                print("photo advice: \(await PhotoAdvisor.sentence(facts: facts) ?? "(model unavailable, plain summary is used)")")
+                photos.signal()
+            }
+            photos.wait()
         }
+    }
+}
+
+/// `Aerilo --breathe-test` runs the real Breathe sequence, start to finish, on a stand-in home
+/// folder it builds and removes itself. Nothing outside that folder is read for cleaning or changed.
+enum BreatheTest {
+    static func run() -> Bool {
+        guard Env.isHomeOverridden else {
+            // Relaunch pointed at a fresh stand-in home, so `Env.realHome` is fixed before anything reads it.
+            let home = FileManager.default.temporaryDirectory.appendingPathComponent("aerilo-breathe-\(getpid())")
+            build(home)
+            let child = Process()
+            child.executableURL = URL(fileURLWithPath: CommandLine.arguments[0])
+            child.arguments = ["--breathe-test", "--home", home.path]
+            try? child.run()
+            child.waitUntilExit()
+            try? FileManager.default.removeItem(at: home)
+            return child.terminationStatus == 0
+        }
+        let home = Env.realHome
+        var finished = false
+        Task { @MainActor in
+            await AppModel.shared.breathe(source: "the breathe test")
+            finished = true
+        }
+        let deadline = Date().addingTimeInterval(90)
+        while !finished, Date() < deadline { RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.1)) }
+
+        let fm = FileManager.default
+        func left(_ path: String) -> Int { (try? fm.contentsOfDirectory(atPath: home.appendingPathComponent(path).path).count) ?? -1 }
+        func exists(_ path: String) -> Bool { fm.fileExists(atPath: home.appendingPathComponent(path).path) }
+        let (freed, phase, steps, findings, advice) = MainActor.assumeIsolated {
+            (AppModel.shared.lastFreed, AppModel.shared.phase, AppModel.shared.steps, AppModel.shared.findings.map(\.id), AppModel.shared.advice)
+        }
+        let log = Audit.entries()
+        var ok = true
+        func check(_ name: String, _ pass: Bool) {
+            print("\(pass ? "pass" : "FAIL")  \(name)")
+            if !pass { ok = false }
+        }
+        check("the sequence finished", finished && phase == .done)
+        check("safe caches were emptied, folders kept", ["Library/Developer/Xcode/DerivedData", ".npm/_cacache", "Library/Caches/Homebrew", "Library/Caches/pip", "Library/Caches/com.example.app.ShipIt"].allSatisfy { left($0) == 0 })
+        check("rebuildable caches were left for the user to choose", left("Library/Caches/CocoaPods") == 1 && left(".gradle/caches") == 1)
+        check("documents and other folders were not touched", exists("Documents/keep.txt") && exists("Library/Caches/com.example.other/data.bin") && exists("Library/Application Support/App/data.bin"))
+        check("reported the amount removed (\(Fmt.bytes(freed)))", freed > 10_000_000 && freed < 14_000_000)
+        check("said what it was doing (\(steps.count) steps)", steps.contains { $0.hasPrefix("Clearing Xcode build data") } && steps.contains { $0.hasPrefix("Letting go") })
+        _ = findings
+        check("produced advice (\(advice?.source == .onDevice ? "on-device model" : "rules"))", advice != nil)
+        check("logged every item cleared", log.filter { $0.event == "clean.item" }.count == 5 && log.contains { $0.event == "breathe.end" })
+        check("the log is intact", !log.isEmpty && log.allSatisfy(\.intact))
+        return ok
+    }
+
+    private static func build(_ home: URL) {
+        let fm = FileManager.default
+        func file(_ path: String, megabytes: Double) {
+            let url = home.appendingPathComponent(path)
+            try? fm.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try? Data(count: Int(megabytes * 1_000_000)).write(to: url)
+        }
+        file("Library/Developer/Xcode/DerivedData/Project-abc/Build/out.bin", megabytes: 5)
+        file(".npm/_cacache/content/a.bin", megabytes: 3)
+        file("Library/Caches/Homebrew/downloads/b.bin", megabytes: 2)
+        file("Library/Caches/pip/c.bin", megabytes: 1)
+        file("Library/Caches/com.example.app.ShipIt/update/d.bin", megabytes: 1)
+        file("Library/Caches/CocoaPods/Pods/e.bin", megabytes: 4)        // rebuildable: must stay
+        file(".gradle/caches/modules/f.bin", megabytes: 4)               // rebuildable: must stay
+        file("Library/Caches/com.example.other/data.bin", megabytes: 1)  // not in the catalogue: must stay
+        file("Library/Application Support/App/data.bin", megabytes: 1)   // app data: must stay
+        file("Documents/keep.txt", megabytes: 0.001)                      // the user's: must stay
     }
 }

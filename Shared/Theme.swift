@@ -36,9 +36,29 @@ struct Aurora: View {
 }
 
 extension View {
+    /// Liquid Glass where the system has it. Vision Pro has its own glass material instead.
+    @ViewBuilder
+    func aeriloGlass(in shape: some InsettableShape, interactive: Bool = false) -> some View {
+        #if os(visionOS)
+        self.glassBackgroundEffect(in: shape)
+        #else
+        self.glassEffect(interactive ? .regular.interactive() : .regular, in: shape)
+        #endif
+    }
+
+    /// The main action of a screen.
+    @ViewBuilder
+    func prominentButton() -> some View {
+        #if os(visionOS)
+        self.buttonStyle(.borderedProminent)
+        #else
+        self.buttonStyle(.glassProminent)
+        #endif
+    }
+
     /// A Liquid Glass panel for a group of content.
     func glassCard(radius: CGFloat = 26, padding: CGFloat = 18) -> some View {
-        self.padding(padding).glassEffect(.regular, in: .rect(cornerRadius: radius))
+        self.padding(padding).aeriloGlass(in: .rect(cornerRadius: radius))
     }
 }
 
@@ -56,7 +76,7 @@ struct Chip: View {
             }
         }
         .padding(.horizontal, 16).padding(.vertical, 10)
-        .glassEffect(.regular, in: .capsule)
+        .aeriloGlass(in: .capsule)
         .accessibilityElement(children: .combine)
     }
 }

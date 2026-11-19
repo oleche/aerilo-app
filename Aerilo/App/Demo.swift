@@ -42,11 +42,12 @@ enum Demo {
             procs.append(p)
             groups.append(AppGroup(name: name, footprint: p.footprint, cpu: cpu, count: count, mainPID: pid, isApp: true))
         }
-        // The App Store edition can't see other apps' usage, so its screenshots must not show it.
-        let store = Env.arg("--edition") == "store"
-        m.procs = store ? [] : procs
-        m.groups = store ? [] : groups
-        m.net = [
+        // Screenshots of the App Store edition are taken from the App Store build itself, so they
+        // show exactly what it can do: activity yes, per-app network and simulators no.
+        let store = Env.isSandboxed
+        m.procs = procs
+        m.groups = groups
+        m.net = store ? [] : [
             NetProc(pid: 610, name: "Browser", bytesIn: 2_600_000, bytesOut: 210_000),
             NetProc(pid: 640, name: "Video Calls", bytesIn: 640_000, bytesOut: 180_000),
             NetProc(pid: 650, name: "Team Chat", bytesIn: 96_000, bytesOut: 22_000),
@@ -100,17 +101,6 @@ enum Demo {
             "mem-Browser": "It holds a third of your memory while the Mac is short of it.",
             "caches": "47 GB that the next build downloads again. Worth clearing when storage runs low.",
         ]
-        if Env.arg("--edition") == "store" {
-            let storeReasons = [
-                "swap": "Your Mac ran short of memory and is leaning on the disk. Closing the app you use least helps most.",
-                "caches": "47 GB that the next build downloads again. Worth clearing when storage runs low.",
-                "uptime": "Twelve days of small leftovers. A restart clears them in one go.",
-            ]
-            let ids = ["swap", "caches", "uptime"].filter(m.findings.map(\.id).contains)
-            m.advice = Advice(headline: "Lighter already. A restart would clear the rest.",
-                              steps: ids.map { Advice.Step(id: $0, reason: storeReasons[$0]!) }, source: .onDevice)
-            return
-        }
         let order = ["leak-610", "runaway-640", "mem-Browser", "caches"]
         let known = m.findings.map(\.id)
         var steps = order.filter(known.contains).map { Advice.Step(id: $0, reason: reasons[$0]!) }

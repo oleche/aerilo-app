@@ -17,6 +17,10 @@ struct PermissionRows: View {
                     state: model.hasHome ? "Allowed" : nil) {
                     Button("Allow…") { Task { await model.grantHome() } }
                 }
+                row("clock.arrow.circlepath", "Temporary folder", "Optional. Lets Aerilo clear leftovers that apps leave outside your Home folder, like Chrome's signing copy.",
+                    state: model.hasTemp ? "Allowed" : nil) {
+                    Button("Allow…") { Task { await model.grantTemp() } }
+                }
             } else {
                 row("externaldrive.badge.checkmark", "Full Disk Access", "Optional. Lets Aerilo clear other apps' leftovers without macOS asking each time.",
                     state: fullDisk ? "Allowed" : nil) {

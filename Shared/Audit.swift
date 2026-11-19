@@ -1,4 +1,3 @@
-import AppKit
 import CryptoKit
 import Foundation
 
@@ -27,12 +26,19 @@ enum Audit {
     }()
 
     static let fileURL: URL = {
-        let dir = FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask)[0].appendingPathComponent("Logs/Aerilo")
+        let library = Env.isHomeOverridden ? Env.realHome.appendingPathComponent("Library") : FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask)[0]
+        let dir = library.appendingPathComponent("Logs/Aerilo")
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         return dir.appendingPathComponent("audit.jsonl")
     }()
 
-    static var edition: String { Env.isSandboxed ? "Mac App Store" : "Direct" }
+    static var edition: String {
+        #if os(macOS)
+        return Env.isSandboxed ? "Mac App Store" : "Direct"
+        #else
+        return "iPhone and iPad"
+        #endif
+    }
     static var version: String {
         let info = Bundle.main.infoDictionary
         return "\(info?["CFBundleShortVersionString"] as? String ?? "?") (\(info?["CFBundleVersion"] as? String ?? "?"))"
@@ -110,12 +116,18 @@ enum Audit {
         case "clean.done": return "Clean-up finished: \(b("bytes")) removed"
         case "breathe.end": return "Breathe finished: \(b("bytes")) removed, \((d["findings"] as? [Any])?.count ?? 0) findings, advice from \(s("advice"))"
         case "action.quit": return "\((d["force"] as? Bool) == true ? "Force quit" : "Quit") \(s("name")) (process \(d["pid"] ?? "?")): \((d["accepted"] as? Bool) == true ? "accepted" : "refused")"
+        case "action.show": return "Brought \(s("name")) forward for you to quit"
+        case "access.temp": return (d["granted"] as? Bool) == true ? "System temp folder access allowed" : "System temp folder access not given"
         case "action.open": return "Opened \(s("url"))"
         case "access.home": return (d["granted"] as? Bool) == true ? "Home folder access allowed" : "Home folder access not given"
         case "settings": return "Setting changed: \(s("name")) = \(d["value"] ?? "")"
         case "update.check": return "Checked for updates: \(s("result"))"
         case "notify": return "Notification sent: \(s("title"))"
         case "log.export": return "Log exported"
+        case "photos.access": return "Photo library access: \(s("status"))"
+        case "photos.scan": return "Looked through \(d["assets"] ?? "?") photos and videos: \(d["found"] ?? 0) could go, \(b("bytes"))"
+        case "photos.delete": return "Moved \(Fmt.items((d["count"] as? NSNumber)?.intValue ?? 0)) to Recently Deleted (\(b("bytes"))): \(s("kinds"))"
+        case "photos.delete.cancelled": return "Deleting \(Fmt.items((d["count"] as? NSNumber)?.intValue ?? 0)) was cancelled"
         default: return e.event
         }
     }
@@ -130,7 +142,7 @@ enum Audit {
             "Aerilo activity report",
             "Created: \(day.string(from: Date()))",
             "Aerilo: \(version), \(edition) edition",
-            "macOS: \(ProcessInfo.processInfo.operatingSystemVersionString)",
+            "System: \(ProcessInfo.processInfo.operatingSystemVersionString)",
             "Entries: \(all.count)",
             "Integrity: " + (broken == 0 ? "intact (every entry follows from the one before it)" : "\(broken) entries do NOT follow from the one before them; the log was changed outside Aerilo"),
             "Log file: \(fileURL.path)",
@@ -144,21 +156,5 @@ enum Audit {
             lines.append("      sha256 \(e.hash)")
         }
         return lines.joined(separator: "\n") + "\n"
-    }
-
-    @MainActor static func export() {
-        let panel = NSSavePanel()
-        let name = DateFormatter()
-        name.dateFormat = "yyyy-MM-dd"
-        panel.nameFieldStringValue = "Aerilo activity \(name.string(from: Date())).txt"
-        panel.message = "The report lists what Aerilo measured, cleared and skipped. It contains app and folder names from this Mac."
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-        try? report().write(to: url, atomically: true, encoding: .utf8)
-        record("log.export")
-    }
-
-    @MainActor static func reveal() {
-        if !FileManager.default.fileExists(atPath: fileURL.path) { try? Data().write(to: fileURL) }
-        NSWorkspace.shared.activateFileViewerSelecting([fileURL])
     }
 }
