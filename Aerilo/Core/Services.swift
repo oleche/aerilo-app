@@ -94,7 +94,9 @@ enum Notifier {
 final class Updater {
     static let shared = Updater()
     static let autoKey = "updateAuto"
+    #if AERILO_DIRECT
     static let feed = URL(string: "https://aerilo.app/appcast.json")!
+    #endif
 
     struct Release {
         let version: String
@@ -138,6 +140,7 @@ final class Updater {
     }
 
     func check() async {
+        #if AERILO_DIRECT
         guard Self.isAvailable, !checking else { return }
         checking = true
         defer { checking = false }
@@ -165,6 +168,7 @@ final class Updater {
             message = "Aerilo \(current) is the latest version."
         }
         Audit.record("update.check", ["result": message])
+        #endif
     }
 
     func download() {

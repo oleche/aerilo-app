@@ -51,19 +51,21 @@ Not covered by a test: clicking through the Mac interface by hand, the Home-fold
 
 ## Screenshots and artwork
 
+Two steps: the screenshot scripts photograph the app in demo mode into `artwork/raw/`, then `scripts/make-art.swift` turns each one into a finished picture with a headline and a description.
+
 ```sh
-scripts/screenshots.sh           # Mac: fastlane/screenshots (App Store mode) and marketing/screenshots
-scripts/screenshots-ios.sh       # iPhone and iPad: fastlane/screenshots-ios
-scripts/screenshots-devices.sh   # Apple TV and Vision Pro: fastlane/screenshots-tvos, -visionos
-swift scripts/make-header.swift marketing                                   # banners and the social card
+scripts/screenshots.sh           # Mac windows            -> fastlane/screenshots, marketing/screenshots
+scripts/screenshots-ios.sh       # iPhone and iPad        -> fastlane/screenshots-ios
+scripts/screenshots-devices.sh   # Apple TV, Vision Pro   -> fastlane/screenshots-tvos, -visionos
+swift scripts/make-art.swift shots    # redo the finished pictures from the raw ones (the scripts above already do this)
+swift scripts/make-art.swift header   # banners and the social card, in marketing/
+swift scripts/make-art.swift duo      # drawn artwork for the iPhone Duo's two screens, in marketing/duo/
 swift scripts/make-icon.swift Aerilo/Assets.xcassets/AppIcon.appiconset     # Mac icon
 swift scripts/make-icon-ios.swift AeriloMobile/Assets.xcassets/AppIcon.appiconset
 swift scripts/make-icon-layers.swift AeriloMobile/Assets.xcassets           # Apple TV and Vision Pro icons
 ```
 
-The Mac script photographs real windows, so the screen must be unlocked and the terminal needs Screen Recording permission. The simulator scripts work with the screen locked.
-
-All screenshots use demo data, with drawn sample pictures in place of photos.
+Headlines and descriptions live in `make-art.swift` (`macCaptions`, `deviceCaptions`). The Mac script photographs real windows, so the screen must be unlocked and the terminal needs Screen Recording permission. The simulator scripts work with the screen locked. All screenshots use demo data, with drawn sample pictures in place of photos.
 
 ## Releasing
 

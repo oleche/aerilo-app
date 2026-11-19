@@ -1,8 +1,9 @@
 #!/bin/zsh
 # Makes screenshots of the real app window (title bar, toolbar and all) from the app's demo mode.
 # Demo mode uses sample data; it reads and deletes nothing.
-#   fastlane/screenshots/en-US/  App Store set: the interface in App Store mode (--as-store)
-#   marketing/screenshots/       full set for aerilo.app (direct edition)
+#   artwork/raw/mac-store/  App Store mode (--as-store)      -> fastlane/screenshots/en-US/
+#   artwork/raw/mac/        the download edition             -> marketing/screenshots/
+# The raw window pictures are then finished by scripts/make-art.swift.
 # Needs Screen Recording permission for the terminal that runs it. Each shot brings a window to
 # the front for about three seconds.
 set -e
@@ -25,12 +26,10 @@ shot() { # folder, name, screen, extra args...
   [[ -s "$out/$name.png" ]] || { echo "Could not capture $name"; kill $pid; return 1; }
   kill $pid; wait $pid 2>/dev/null || true
   sips -z 1800 2880 "$out/$name.png" >/dev/null   # the Mac App Store accepts 2880x1800
-  # App Store screenshots may not be transparent: fill the window's rounded corners.
-  [[ "$out" == fastlane/* ]] && swift scripts/flatten.swift "$out/$name.png"
   return 0
 }
-STORE=fastlane/screenshots/en-US
-FULL=marketing/screenshots
+STORE=artwork/raw/mac-store
+FULL=artwork/raw/mac
 shot $STORE 1-breathe  exhale --as-store
 shot $STORE 2-result   result --as-store
 shot $STORE 3-activity activity --as-store
@@ -47,3 +46,6 @@ shot $FULL 5-network  network
 shot $FULL 6-photos   photos
 shot $FULL 7-log      log
 shot $FULL 8-dark     result --appearance dark
+
+# Headline, description and the finished look.
+swift scripts/make-art.swift shots

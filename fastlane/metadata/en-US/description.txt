@@ -37,6 +37,6 @@ Say "Breathe with Aerilo" or add "Let My Mac Breathe" and "Check Mac Health" to 
 
 GOOD TO KNOW
 • To clear caches, Aerilo asks you once to allow your Home folder. Apple requires this of every App Store app. Notifications and opening at login are optional and off until you turn them on.
-• Apple does not let App Store apps quit other apps, read per-app network traffic, or remove Xcode simulators. The open-source edition at aerilo.app adds those three.
+• When an app needs quitting, Aerilo brings it to the front for you. It shows total network traffic, not traffic per app.
 
 Aerilo is free.

@@ -1,3 +1,4 @@
+import Darwin
 import SwiftUI
 
 #if canImport(UIKit)
@@ -192,12 +193,52 @@ struct MobileHome: View {
 
 // MARK: - Device
 
+/// What the system shares about the device as a whole. It shares nothing about other apps: no
+/// list of them, and no memory or processor figures for any app but this one.
+enum DeviceLoad {
+    /// Memory in use across the device, 0...1.
+    static func memoryFraction() -> Double? {
+        var vm = vm_statistics64()
+        var count = mach_msg_type_number_t(MemoryLayout<vm_statistics64_data_t>.size / MemoryLayout<integer_t>.size)
+        let kr = withUnsafeMutablePointer(to: &vm) {
+            $0.withMemoryRebound(to: integer_t.self, capacity: Int(count)) { host_statistics64(mach_host_self(), HOST_VM_INFO64, $0, &count) }
+        }
+        guard kr == KERN_SUCCESS else { return nil }
+        let used = UInt64(vm.internal_page_count) &- UInt64(vm.purgeable_count) + UInt64(vm.wire_count) + UInt64(vm.compressor_page_count)
+        let total = ProcessInfo.processInfo.physicalMemory
+        guard total > 0 else { return nil }
+        return min(1, Double(used * UInt64(getpagesize())) / Double(total))
+    }
+
+    private static func ticks() -> (busy: UInt64, total: UInt64)? {
+        var cpu = host_cpu_load_info()
+        var count = mach_msg_type_number_t(MemoryLayout<host_cpu_load_info_data_t>.size / MemoryLayout<integer_t>.size)
+        let kr = withUnsafeMutablePointer(to: &cpu) {
+            $0.withMemoryRebound(to: integer_t.self, capacity: Int(count)) { host_statistics(mach_host_self(), HOST_CPU_LOAD_INFO, $0, &count) }
+        }
+        guard kr == KERN_SUCCESS else { return nil }
+        let t = cpu.cpu_ticks
+        let busy = UInt64(t.0) + UInt64(t.1) + UInt64(t.3)
+        return (busy, busy + UInt64(t.2))
+    }
+
+    /// Processor load across all cores over one second, 0...1.
+    static func processorFraction() async -> Double? {
+        guard let a = ticks() else { return nil }
+        try? await Task.sleep(for: .seconds(1))
+        guard let b = ticks(), b.total > a.total else { return nil }
+        return Double(b.busy - a.busy) / Double(b.total - a.total)
+    }
+}
+
 struct DeviceView: View {
     @State private var free: Int64 = 0
     @State private var total: Int64 = 0
     @State private var thermal = ProcessInfo.processInfo.thermalState
     @State private var lowPower = ProcessInfo.processInfo.isLowPowerModeEnabled
     @State private var battery: Float = -1
+    @State private var memory: Double?
+    @State private var processor: Double?
 
     private var thermalWord: String {
         switch thermal {
@@ -221,6 +262,15 @@ struct DeviceView: View {
                         Meter(fraction: total > 0 ? 1 - Double(free) / Double(total) : 0, tint: total > 0 && Double(free) / Double(total) < 0.1 ? .orange : .accentColor)
                         Text("Photos and videos are usually the largest part. Breathe finds the ones you can let go.")
                             .font(.callout).foregroundStyle(.secondary)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .glassCard()
+
+                    VStack(alignment: .leading, spacing: 12) {
+                        load("memorychip", "Memory in use", memory)
+                        load("cpu", "Processor load", processor)
+                        Text("These are totals for the whole device. No app is allowed to see which apps are running or what each one uses.")
+                            .font(.footnote).foregroundStyle(.secondary)
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .glassCard()
@@ -254,7 +304,26 @@ struct DeviceView: View {
                 .frame(maxWidth: .infinity)
             }
         }
-        .task { refresh() }
+        .task {
+            refresh()
+            guard !Env.isDemo else { return }
+            while !Task.isCancelled {
+                memory = DeviceLoad.memoryFraction()
+                processor = await DeviceLoad.processorFraction()   // takes one second
+                try? await Task.sleep(for: .seconds(4))
+            }
+        }
+    }
+
+    private func load(_ icon: String, _ name: String, _ fraction: Double?) -> some View {
+        VStack(spacing: 5) {
+            HStack {
+                Label(name, systemImage: icon)
+                Spacer()
+                Text(fraction.map { "\(Int(($0 * 100).rounded()))%" } ?? "…").monospacedDigit().foregroundStyle(.secondary)
+            }
+            Meter(fraction: fraction ?? 0, tint: (fraction ?? 0) > 0.85 ? .orange : .accentColor)
+        }
     }
 
     private func row(_ icon: String, _ name: String, _ value: String) -> some View {
@@ -268,6 +337,7 @@ struct DeviceView: View {
     private func refresh() {
         if Env.isDemo {
             free = 21_400_000_000; total = 256_000_000_000; battery = 0.82
+            memory = 0.64; processor = 0.18
             return
         }
         let home = URL(fileURLWithPath: NSHomeDirectory())

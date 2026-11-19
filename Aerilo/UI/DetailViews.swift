@@ -171,7 +171,7 @@ struct NetworkView: View {
                 }
                 .glassCard()
             } else {
-                Label("This edition shows total traffic. macOS only shares per-app traffic with apps outside the App Store, so that part is in the edition from aerilo.app.", systemImage: "info.circle")
+                Label("Aerilo shows the total traffic of this Mac. macOS does not share traffic per app with sandboxed apps.", systemImage: "info.circle")
                     .foregroundStyle(.secondary).glassCard()
             }
         }

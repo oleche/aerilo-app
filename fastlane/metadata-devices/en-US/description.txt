@@ -21,9 +21,9 @@ A RECORD YOU CAN SHARE
 Everything Aerilo looked at and everything you asked it to delete is written to a log on your device. Share it with support or keep it as a record.
 
 ALSO IN THE APP
-A Device screen with free storage, temperature, battery and Low Power Mode.
+A Device screen with free storage, memory in use, processor load, temperature, battery and Low Power Mode.
 
 GOOD TO KNOW
-Aerilo for iPhone, iPad, Apple TV and Apple Vision Pro tidies photos and storage. It does not speed up your device or manage other apps; these systems do that by themselves. Aerilo for Mac goes further and also finds what is slowing your Mac down.
+Aerilo for iPhone, iPad, Apple TV and Apple Vision Pro tidies photos and storage. It does not speed up your device or manage other apps; these systems do that by themselves.
 
 Aerilo is free and open source.

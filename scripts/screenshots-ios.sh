@@ -1,10 +1,10 @@
 #!/bin/zsh
 # App Store screenshots for iPhone and iPad, taken in the simulator from the app's demo mode
 # (drawn sample pictures; no photo library is read).
-#   fastlane/screenshots-ios/en-US/
+#   artwork/raw/ios/  ->  fastlane/screenshots-ios/en-US/ (finished by scripts/make-art.swift)
 set -e
 cd "$(dirname "$0")/.."
-OUT=fastlane/screenshots-ios/en-US
+OUT=artwork/raw/ios
 BUNDLE=app.aerilo.Aerilo
 mkdir -p "$OUT"
 run() { # simulator name, file prefix
@@ -18,13 +18,9 @@ run() { # simulator name, file prefix
   # One launch to get past the first-start delay before any picture is taken.
   xcrun simctl launch "$device" $BUNDLE --demo >/dev/null; sleep 6
   local n=1
-  # The first three are what App Store search results show, so they carry a caption.
-  local -A captions=(exhale "One tap tidies your photos" result "See what could go" similar "Keep the best, drop the rest")
   for shot in exhale result similar videos device log; do
     xcrun simctl terminate "$device" $BUNDLE 2>/dev/null || true
-    local extra=()
-    [[ -n "${captions[$shot]}" ]] && extra=(--caption "${captions[$shot]}")
-    xcrun simctl launch "$device" $BUNDLE --demo --shot $shot "${extra[@]}" -AppleLanguages "(en)" -AppleLocale en_US >/dev/null
+    xcrun simctl launch "$device" $BUNDLE --demo --shot $shot -AppleLanguages "(en)" -AppleLocale en_US >/dev/null
     if [[ $shot == exhale ]]; then sleep 2.3; else sleep 3.2; fi   # catch the ripples mid-flight
     xcrun simctl io "$device" screenshot --type=png "$OUT/$prefix-$n-$shot.png" 2>/dev/null
     n=$((n + 1))
@@ -34,6 +30,5 @@ run() { # simulator name, file prefix
 }
 run "iPhone 18 Pro Max" iphone
 run "iPad Pro 13-inch (M5)" ipad
-# The first three of each are shown side by side in App Store search: draw them as one piece.
-swift scripts/make-store-art.swift "$OUT" iphone
-swift scripts/make-store-art.swift "$OUT" ipad
+# Headline, description and the finished look, into fastlane/screenshots-ios/en-US.
+swift scripts/make-art.swift shots

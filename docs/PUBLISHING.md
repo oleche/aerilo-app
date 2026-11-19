@@ -28,6 +28,40 @@ What is already done, what is left, and who does each step. Commands are explain
 
 The three "no" rows are Apple's rules for App Store apps, confirmed by testing inside the sandbox.
 
+## Permissions each edition asks for
+
+Nothing is requested at install. Each permission is asked the first time it is needed, and every one except the first row of each edition is optional.
+
+| Edition | Permission | Why | How it is asked |
+|---|---|---|---|
+| Mac App Store | Home folder | To measure and clear caches inside it | A folder chooser, once |
+| Mac App Store | Temporary folder (optional) | To clear leftovers outside the Home folder | A folder chooser, once |
+| Mac download | none required | It runs with the user's own file access | |
+| Mac download | Full Disk Access (optional) | Avoids a prompt per app when clearing other apps' leftovers | The user turns it on in System Settings |
+| Both Mac editions | Photos (optional) | Only when the user opens Photos and starts a look | System prompt |
+| Both Mac editions | Notifications (optional) | Low-space warning | System prompt, when switched on |
+| Both Mac editions | Open at login (optional) | Keeps the menu bar icon after a restart | A switch in Settings |
+| iPhone, iPad, Apple TV, Vision Pro | Photos | The whole purpose of the app | System prompt on the first breath |
+
+Declared to Apple: the photo-library purpose text, the App Sandbox with user-selected files, bookmarks and Photos (Mac App Store), and a privacy manifest that says no data is collected and names the three system readings used (free storage, time since restart, the app's own settings).
+
+## What could get it rejected, and what was done about each
+
+Nobody can promise an approval; this is the list of known causes and where Aerilo stands.
+
+| Risk | Status |
+|---|---|
+| Private or undocumented system calls | None. Photo sizes use documented calls; the Mac readings use the public process-information calls. |
+| Mentioning another, fuller edition or an outside download | Removed from the App Store text and from the App Store build's interface. |
+| Self-updating code in an App Store build | Compiled out; the App Store build contains no update check. |
+| Claiming to speed up an iPhone or free its memory | The device text says plainly that it does not. |
+| Asking for a whole folder on the Mac | Still the most likely question. The review note explains it, and nothing is read before the user chooses the folder. |
+| Too little function on Apple TV or Vision Pro | A real risk: there the app is photo tidying and a device screen only. Submit iPhone and Mac first; if Apple objects to these two, they can be withdrawn without affecting the others. |
+| Screenshots that don't match the app | They are taken from the app itself; the App Store Mac set is taken in App Store mode. |
+| Support or privacy page not reachable | Blocks submission until the site is hosted. |
+| Missing export-compliance answer | Declared in the build (only standard hashing is used). |
+| Crash on launch during review | Each build launches in its simulator; the Mac editions pass their self-tests. No TestFlight run by a person yet. |
+
 ## Steps left
 
 ### 1. Host the website

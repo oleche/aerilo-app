@@ -24,5 +24,8 @@ run() { # simulator name, platform, products folder, output folder, seconds to s
   xcrun simctl terminate "$device" $BUNDLE 2>/dev/null || true
   xcrun simctl shutdown "$device"
 }
-run "Apple TV 4K (4th generation)" tvOS Debug-appletvsimulator fastlane/screenshots-tvos/en-US 4
-run "Apple Vision Pro" visionOS Debug-xrsimulator fastlane/screenshots-visionos/en-US 6
+run "Apple TV 4K (4th generation)" tvOS Debug-appletvsimulator artwork/raw/tvos 4
+run "Apple Vision Pro" visionOS Debug-xrsimulator artwork/raw/visionos 6
+
+# Headline, description and the finished look, into the fastlane folders.
+swift scripts/make-art.swift shots
