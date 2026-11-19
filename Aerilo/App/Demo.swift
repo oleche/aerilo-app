@@ -75,6 +75,9 @@ enum Demo {
             m.sizes["simulators"] = nil
         }
         m.hasHome = true
+        m.bigFiles = [("Holiday film final.mov", "Movies", 6.4, 420), ("Design archive 2024.zip", "Downloads", 3.1, 200), ("Installer.dmg", "Downloads", 1.8, 95)].map {
+            BigFile(url: URL(fileURLWithPath: "/Users/you/\($0.1)/\($0.0)"), bytes: Int64($0.2 * 1_000_000_000), lastOpened: Date().addingTimeInterval(-Double($0.3) * 86_400))
+        }
 
         if Env.arg("--shot") == "exhale" {
             finish(m)
@@ -106,6 +109,23 @@ enum Demo {
         var steps = order.filter(known.contains).map { Advice.Step(id: $0, reason: reasons[$0]!) }
         steps += m.findings.filter { !order.contains($0.id) }.map { Advice.Step(id: $0.id, reason: $0.detail) }
         m.advice = Advice(headline: "Lighter already. Two apps are still holding your Mac back.", steps: steps, source: .onDevice)
+    }
+
+    static let insightAdvice = "Most of Browser's memory is in its tabs, and one tab alone holds 1.9 GB. Freeing that tab gives the most back without closing anything else."
+
+    /// A sample look inside the browser, for screenshots.
+    static func insight(for app: String) -> AppInsight {
+        func parts(_ titles: [(String, Double, Double)], canEnd: Bool) -> [AppInsight.Part] {
+            titles.enumerated().map { i, t in AppInsight.Part(pid: pid_t(900 + i), title: t.0, footprint: UInt64(t.1 * 1_073_741_824), cpu: t.2, canEnd: canEnd) }
+        }
+        return AppInsight(app: app, sections: [
+            AppInsight.Section(kind: .tabs, parts: parts([("Heaviest tab or window", 1.9, 14), ("Tab or window 2", 0.9, 3), ("Tab or window 3", 0.7, 1), ("Tab or window 4", 0.6, 0),
+                                                           ("Tab or window 5", 0.5, 0), ("Tab or window 6", 0.4, 2)], canEnd: true)),
+            AppInsight.Section(kind: .extensions, parts: parts([("Extension", 0.6, 1), ("Extension", 0.3, 0), ("Extension", 0.2, 0)], canEnd: false)),
+            AppInsight.Section(kind: .graphics, parts: parts([("Graphics", 0.8, 2)], canEnd: false)),
+            AppInsight.Section(kind: .app, parts: parts([(app, 0.5, 1)], canEnd: false)),
+            AppInsight.Section(kind: .services, parts: parts([("Network", 0.15, 0), ("Storage", 0.08, 0)], canEnd: false)),
+        ])
     }
 
     /// Sample log entries for the screenshot of the Log screen.

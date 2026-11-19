@@ -160,6 +160,17 @@ enum Cleaner {
         let updaters = ((try? fm.contentsOfDirectory(at: caches, includingPropertiesForKeys: nil)) ?? [])
             .filter { $0.lastPathComponent.hasSuffix(".ShipIt") }
 
+        // Every other app's cache folder, except apps that are open now, Apple's own, and the ones
+        // listed separately. An open app may be writing to its cache, so it is left alone.
+        let open = Set(NSWorkspace.shared.runningApplications.compactMap(\.bundleIdentifier))
+        let listed: Set<String> = ["Homebrew", "pip", "Yarn", "CocoaPods"]
+        let appCaches = ((try? fm.contentsOfDirectory(at: caches, includingPropertiesForKeys: [.isDirectoryKey], options: [.skipsHiddenFiles])) ?? []).filter { url in
+            let name = url.lastPathComponent
+            guard (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true else { return false }
+            return !listed.contains(name) && !name.hasSuffix(".ShipIt") && !name.hasPrefix("com.apple.") && !name.hasPrefix("app.aerilo.")
+                && !open.contains(name) && !open.contains { name.hasPrefix($0 + ".") }
+        }
+
         var list: [CleanItem] = [
             // Each item is skipped while the tool that owns it is at work, so nothing is pulled from under it.
             CleanItem(id: "derived", name: "Xcode build data", detail: "DerivedData. The next build takes longer.", tier: .safe,
@@ -180,6 +191,10 @@ enum Cleaner {
                       kind: .contents([h(".gradle/caches")]), blocker: running(["studio"], args: ["GradleDaemon"])),
             CleanItem(id: "devicesupport", name: "iOS device support", detail: "Debug symbols for devices, copied again on connect.", tier: .rebuildable,
                       kind: .contents([h("Library/Developer/Xcode/iOS DeviceSupport")])),
+            CleanItem(id: "appcaches", name: "Caches of closed apps", detail: "What other apps stored to open faster. Each app rebuilds its own when it next opens.", tier: .rebuildable,
+                      kind: .contents(appCaches)),
+            CleanItem(id: "reports", name: "Old crash reports", detail: "Reports macOS wrote when an app crashed.", tier: .rebuildable,
+                      kind: .contents([h("Library/Logs/DiagnosticReports")])),
             CleanItem(id: "chromedata", name: "Chrome profile", detail: "Your bookmarks, history and logins. Clear browsing data inside Chrome instead.", tier: .ask,
                       kind: .reveal(h("Library/Application Support/Google/Chrome"))),
             CleanItem(id: "archives", name: "Xcode archives", detail: "Keep the ones for shipped releases: they hold crash symbols.", tier: .ask,
@@ -289,7 +304,7 @@ enum Cleaner {
         if path.hasPrefix(home + "/") {
             let parts = path.dropFirst(home.count + 1).split(separator: "/")
             guard parts.count >= 2, !parts.contains("..") else { return false }
-            let allowed = ["Library/Caches/", "Library/Developer/Xcode/DerivedData", "Library/Developer/Xcode/iOS DeviceSupport",
+            let allowed = ["Library/Caches/", "Library/Logs/DiagnosticReports", "Library/Developer/Xcode/DerivedData", "Library/Developer/Xcode/iOS DeviceSupport",
                            ".npm/_cacache", ".gradle/caches"]
             let relative = parts.joined(separator: "/")
             return allowed.contains { relative == $0 || relative.hasPrefix($0.hasSuffix("/") ? $0 : $0 + "/") }

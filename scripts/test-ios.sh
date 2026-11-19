@@ -15,7 +15,7 @@ xcrun simctl boot "$NAME"
 xcrun simctl bootstatus "$NAME" -b >/dev/null
 # The same bytes under a second name: Photos merges a file imported twice under one name.
 cp "$MEDIA/duplicate.jpg" "$MEDIA/duplicate-copy.jpg"
-xcrun simctl addmedia "$NAME" "$MEDIA/duplicate.jpg" "$MEDIA/duplicate-copy.jpg" "$MEDIA"/burst-*.jpg "$MEDIA"/single-*.jpg "$MEDIA/screenshot.png" "$MEDIA/big.mp4"
+xcrun simctl addmedia "$NAME" "$MEDIA/duplicate.jpg" "$MEDIA/duplicate-copy.jpg" "$MEDIA"/burst-*.jpg "$MEDIA"/single-*.jpg "$MEDIA/IMG-20260101-WA0007.jpg" "$MEDIA/screenshot.png" "$MEDIA/big.mp4"
 sleep 5   # let Photos finish importing
 # Photo access is given here; the system prompt itself belongs to iOS, not to Aerilo.
 xcrun simctl privacy "$NAME" grant photos app.aerilo.Aerilo

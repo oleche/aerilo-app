@@ -33,19 +33,21 @@ FULL=artwork/raw/mac
 shot $STORE 1-breathe  exhale --as-store
 shot $STORE 2-result   result --as-store
 shot $STORE 3-activity activity --as-store
-shot $STORE 4-storage  storage --as-store
-shot $STORE 5-photos   photos --as-store
-shot $STORE 6-log      log --as-store
-shot $STORE 7-dark     result --appearance dark --as-store
+shot $STORE 4-inside   inside --as-store
+shot $STORE 5-storage  storage --as-store
+shot $STORE 6-photos   photos --as-store
+shot $STORE 7-log      log --as-store
+shot $STORE 8-dark     result --appearance dark --as-store
 
 shot $FULL 1-breathe  exhale
 shot $FULL 2-result   result
 shot $FULL 3-activity activity
-shot $FULL 4-storage  storage
-shot $FULL 5-network  network
-shot $FULL 6-photos   photos
-shot $FULL 7-log      log
-shot $FULL 8-dark     result --appearance dark
+shot $FULL 4-inside   inside
+shot $FULL 5-storage  storage
+shot $FULL 6-network  network
+shot $FULL 7-photos   photos
+shot $FULL 8-log      log
+shot $FULL 9-dark     result --appearance dark
 
 # Headline, description and the finished look.
 swift scripts/make-art.swift shots

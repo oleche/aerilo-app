@@ -18,7 +18,7 @@ run() { # simulator name, file prefix
   # One launch to get past the first-start delay before any picture is taken.
   xcrun simctl launch "$device" $BUNDLE --demo >/dev/null; sleep 6
   local n=1
-  for shot in exhale result similar videos device log; do
+  for shot in exhale result similar whatsapp videos device log; do
     xcrun simctl terminate "$device" $BUNDLE 2>/dev/null || true
     xcrun simctl launch "$device" $BUNDLE --demo --shot $shot -AppleLanguages "(en)" -AppleLocale en_US >/dev/null
     if [[ $shot == exhale ]]; then sleep 2.3; else sleep 3.2; fi   # catch the ripples mid-flight

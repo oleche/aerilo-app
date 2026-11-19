@@ -6,11 +6,17 @@ build setting; source files need no entry, because every target follows its fold
   AeriloDirect   Mac download edition (DMG, not sandboxed)  Shared/ + Aerilo/
   AeriloMobile   iPhone, iPad, Apple TV and Vision Pro      Shared/ + AeriloMobile/
   AeriloUITests  drives AeriloMobile in the simulator       AeriloUITests/
+  AeriloWidgets        widget for the App Store apps (Mac, iPhone, iPad)   Shared/ + AeriloWidgets/
+  AeriloWidgetsDirect  the same widget for the Mac download                Shared/ + AeriloWidgets/
+
+An app extension's bundle id must start with its app's, which is why the widget is two targets.
 """
 TEAM = "TM3Y76QWZV"
-VERSION, BUILD = "1.0.1", "2"
+VERSION, BUILD = "1.0.2", "3"
 PHOTOS = "Aerilo compares your photos on this device to find duplicates, similar shots, old screenshots and large videos. Nothing is deleted until you choose."
+FOLDERS = "Aerilo looks here only when you ask it to find large files. It lists them and never deletes one by itself."
 A = "A100000000000000000000"
+B = "B100000000000000000000"
 
 
 def settings(d):
@@ -63,6 +69,9 @@ def mac(bundle, entitlements, direct):
         "COMBINE_HIDPI_IMAGES": "YES",
         "ENABLE_HARDENED_RUNTIME": "YES",
         "LD_RUNPATH_SEARCH_PATHS": '("$(inherited)", "@executable_path/../Frameworks", )',
+        "INFOPLIST_KEY_NSDownloadsFolderUsageDescription": f'"{FOLDERS}"',
+        "INFOPLIST_KEY_NSDocumentsFolderUsageDescription": f'"{FOLDERS}"',
+        "INFOPLIST_KEY_NSDesktopFolderUsageDescription": f'"{FOLDERS}"',
         "PRODUCT_BUNDLE_IDENTIFIER": bundle,
         "SDKROOT": "macosx",
     })
@@ -75,6 +84,8 @@ mobile = dict(common)
 mobile.update({
     # The same identifier as the Mac App Store edition: one listing, every platform.
     "PRODUCT_BUNDLE_IDENTIFIER": "app.aerilo.Aerilo",
+    # Empty for everyday builds; the store upload passes the profile's name.
+    "PROVISIONING_PROFILE_SPECIFIER": '"$(AERILO_PROFILE_APP)"',
     "SDKROOT": "auto",
     "SUPPORTED_PLATFORMS": '"iphoneos iphonesimulator appletvos appletvsimulator xros xrsimulator"',
     "TARGETED_DEVICE_FAMILY": '"1,2,3,7"',
@@ -91,6 +102,36 @@ mobile.update({
     '"ASSETCATALOG_COMPILER_APPICON_NAME[sdk=appletv*]"': '"App Icon & Top Shelf Image"',
     '"ASSETCATALOG_COMPILER_APPICON_NAME[sdk=xr*]"': "AppIconVision",
 })
+
+def widgets(bundle, mac_only):
+    d = {
+        "APPLICATION_EXTENSION_API_ONLY": "YES",
+        "CODE_SIGN_STYLE": "Automatic",
+        '"CODE_SIGN_ENTITLEMENTS[sdk=macosx*]"': "Config/Widgets.entitlements",
+        "CURRENT_PROJECT_VERSION": BUILD,
+        "DEVELOPMENT_TEAM": TEAM,
+        "ENABLE_HARDENED_RUNTIME": "YES",
+        "GENERATE_INFOPLIST_FILE": "YES",
+        "INFOPLIST_FILE": "Config/Widgets-Info.plist",
+        "INFOPLIST_KEY_CFBundleDisplayName": "Aerilo",
+        "INFOPLIST_KEY_NSHumanReadableCopyright": '"© 2026 Aerilo"',
+        "IPHONEOS_DEPLOYMENT_TARGET": "26.0",
+        "LD_RUNPATH_SEARCH_PATHS": '("$(inherited)", "@executable_path/Frameworks", "@executable_path/../../Frameworks", "@executable_path/../../../../Frameworks", )',
+        "MARKETING_VERSION": VERSION,
+        "PRODUCT_BUNDLE_IDENTIFIER": bundle,
+        "PRODUCT_NAME": "AeriloWidgets",
+        # Empty for everyday builds; the store upload passes the profile's name.
+        "PROVISIONING_PROFILE_SPECIFIER": '"$(AERILO_PROFILE_WIDGETS)"',
+        "SKIP_INSTALL": "YES",
+        "SWIFT_EMIT_LOC_STRINGS": "YES",
+        "SWIFT_VERSION": "5.0",
+    }
+    if mac_only:
+        d["SDKROOT"] = "macosx"
+    else:
+        d.update({"SDKROOT": "auto", "SUPPORTED_PLATFORMS": '"macosx iphoneos iphonesimulator"', "TARGETED_DEVICE_FAMILY": '"1,2"'})
+    return d
+
 
 uitests = {
     "CODE_SIGN_STYLE": "Automatic",
@@ -140,13 +181,33 @@ out = f"""// !$*UTF8*$!
 \t\t{A}06 = {{isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = AeriloUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; }};
 \t\t{A}90 = {{isa = PBXContainerItemProxy; containerPortal = {A}00 /* Project object */; proxyType = 1; remoteGlobalIDString = {A}42; remoteInfo = AeriloMobile; }};
 \t\t{A}91 = {{isa = PBXTargetDependency; target = {A}42 /* AeriloMobile */; targetProxy = {A}90; }};
-\t\t{A}03 = {{isa = PBXGroup; children = ({A}11, {A}10, {A}12, {A}13, {A}04, ); sourceTree = "<group>"; }};
-\t\t{A}04 /* Products */ = {{isa = PBXGroup; children = ({A}01, {A}02, {A}05, {A}06, ); name = Products; sourceTree = "<group>"; }};"""
+\t\t{A}14 /* AeriloWidgets */ = {{isa = PBXFileSystemSynchronizedRootGroup; path = AeriloWidgets; sourceTree = "<group>"; }};
+\t\t{A}07 = {{isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; name = "AeriloWidgets.appex"; path = AeriloWidgets.appex; sourceTree = BUILT_PRODUCTS_DIR; }};
+\t\t{A}08 = {{isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; name = "AeriloWidgetsDirect.appex"; path = AeriloWidgets.appex; sourceTree = BUILT_PRODUCTS_DIR; }};
+\t\t{B}70 = {{isa = PBXContainerItemProxy; containerPortal = {A}00 /* Project object */; proxyType = 1; remoteGlobalIDString = {B}40; remoteInfo = AeriloWidgets; }};
+\t\t{B}71 = {{isa = PBXTargetDependency; target = {B}40 /* AeriloWidgets */; targetProxy = {B}70; }};
+\t\t{B}72 = {{isa = PBXContainerItemProxy; containerPortal = {A}00 /* Project object */; proxyType = 1; remoteGlobalIDString = {B}41; remoteInfo = AeriloWidgetsDirect; }};
+\t\t{B}73 = {{isa = PBXTargetDependency; target = {B}41 /* AeriloWidgetsDirect */; targetProxy = {B}72; }};
+\t\t{B}74 = {{isa = PBXContainerItemProxy; containerPortal = {A}00 /* Project object */; proxyType = 1; remoteGlobalIDString = {B}40; remoteInfo = AeriloWidgets; }};
+\t\t{B}75 = {{isa = PBXTargetDependency; platformFilters = (ios, ); target = {B}40 /* AeriloWidgets */; targetProxy = {B}74; }};
+\t\t{B}85 = {{isa = PBXBuildFile; fileRef = {A}07; settings = {{ATTRIBUTES = (RemoveHeadersOnCopy, ); }}; }};
+\t\t{B}86 = {{isa = PBXBuildFile; fileRef = {A}08; settings = {{ATTRIBUTES = (RemoveHeadersOnCopy, ); }}; }};
+\t\t{B}87 = {{isa = PBXBuildFile; fileRef = {A}07; platformFilters = (ios, ); settings = {{ATTRIBUTES = (RemoveHeadersOnCopy, ); }}; }};
+\t\t{B}80 = {{isa = PBXCopyFilesBuildPhase; buildActionMask = 2147483647; dstPath = ""; dstSubfolderSpec = 13; files = ({B}85, ); name = "Embed Foundation Extensions"; runOnlyForDeploymentPostprocessing = 0; }};
+\t\t{B}81 = {{isa = PBXCopyFilesBuildPhase; buildActionMask = 2147483647; dstPath = ""; dstSubfolderSpec = 13; files = ({B}86, ); name = "Embed Foundation Extensions"; runOnlyForDeploymentPostprocessing = 0; }};
+\t\t{B}82 = {{isa = PBXCopyFilesBuildPhase; buildActionMask = 2147483647; dstPath = ""; dstSubfolderSpec = 13; files = ({B}87, ); name = "Embed Foundation Extensions"; runOnlyForDeploymentPostprocessing = 0; }};
+\t\t{A}03 = {{isa = PBXGroup; children = ({A}11, {A}10, {A}12, {A}14, {A}13, {A}04, ); sourceTree = "<group>"; }};
+\t\t{A}04 /* Products */ = {{isa = PBXGroup; children = ({A}01, {A}02, {A}05, {A}06, {A}07, {A}08, ); name = Products; sourceTree = "<group>"; }};"""
+for base in ("2", "3"):
+    out += phase(base + "1", "PBXSourcesBuildPhase").replace(A, B) + phase(base + "2", "PBXFrameworksBuildPhase").replace(A, B) + phase(base + "3", "PBXResourcesBuildPhase").replace(A, B)
 for base in ("2", "3", "7", "8"):
     out += phase(base + "1", "PBXSourcesBuildPhase") + phase(base + "2", "PBXFrameworksBuildPhase") + phase(base + "3", "PBXResourcesBuildPhase")
-out += target(f"{A}40", "Aerilo", f"{A}50", [f"{A}21", f"{A}22", f"{A}23"], f"{A}01", [SHARED, MACDIR])
-out += target(f"{A}41", "AeriloDirect", f"{A}51", [f"{A}31", f"{A}32", f"{A}33"], f"{A}02", [SHARED, MACDIR])
-out += target(f"{A}42", "AeriloMobile", f"{A}53", [f"{A}71", f"{A}72", f"{A}73"], f"{A}05", [SHARED, MOBDIR])
+WIDGETDIR = f"{A}14 /* AeriloWidgets */"
+out += target(f"{A}40", "Aerilo", f"{A}50", [f"{A}21", f"{A}22", f"{A}23", f"{B}80"], f"{A}01", [SHARED, MACDIR], deps=f"{B}71, ")
+out += target(f"{A}41", "AeriloDirect", f"{A}51", [f"{A}31", f"{A}32", f"{A}33", f"{B}81"], f"{A}02", [SHARED, MACDIR], deps=f"{B}73, ")
+out += target(f"{A}42", "AeriloMobile", f"{A}53", [f"{A}71", f"{A}72", f"{A}73", f"{B}82"], f"{A}05", [SHARED, MOBDIR], deps=f"{B}75, ")
+out += target(f"{B}40", "AeriloWidgets", f"{B}50", [f"{B}21", f"{B}22", f"{B}23"], f"{A}07", [SHARED, WIDGETDIR], kind="app-extension")
+out += target(f"{B}41", "AeriloWidgetsDirect", f"{B}51", [f"{B}31", f"{B}32", f"{B}33"], f"{A}08", [SHARED, WIDGETDIR], kind="app-extension")
 out += target(f"{A}43", "AeriloUITests", f"{A}54", [f"{A}81", f"{A}82", f"{A}83"], f"{A}06", [f"{A}13 /* AeriloUITests */"], kind="bundle.ui-testing", deps=f"{A}91, ")
 out += f"""
 \t\t{A}00 /* Project object */ = {{
@@ -162,7 +223,7 @@ out += f"""
 \t\t\tproductRefGroup = {A}04 /* Products */;
 \t\t\tprojectDirPath = "";
 \t\t\tprojectRoot = "";
-\t\t\ttargets = ({A}40, {A}41, {A}42, {A}43, );
+\t\t\ttargets = ({A}40, {A}41, {A}42, {A}43, {B}40, {B}41, );
 \t\t}};"""
 out += config(f"{A}60", "Debug", project_debug) + config(f"{A}61", "Release", project_release)
 store, direct = mac("app.aerilo.Aerilo", "AppStore.entitlements", False), mac("app.aerilo.Aerilo.direct", "Direct.entitlements", True)
@@ -170,6 +231,11 @@ out += config(f"{A}62", "Debug", store) + config(f"{A}63", "Release", store)
 out += config(f"{A}64", "Debug", direct) + config(f"{A}65", "Release", direct)
 out += config(f"{A}66", "Debug", mobile) + config(f"{A}67", "Release", mobile)
 out += config(f"{A}68", "Debug", uitests) + config(f"{A}69", "Release", uitests)
+w_store, w_direct = widgets("app.aerilo.Aerilo.widgets", False), widgets("app.aerilo.Aerilo.direct.widgets", True)
+out += config(f"{B}60", "Debug", w_store) + config(f"{B}61", "Release", w_store)
+out += config(f"{B}62", "Debug", w_direct) + config(f"{B}63", "Release", w_direct)
+out += f"\n\t\t{B}50 = {{isa = XCConfigurationList; buildConfigurations = ({B}60, {B}61, ); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; }};"
+out += f"\n\t\t{B}51 = {{isa = XCConfigurationList; buildConfigurations = ({B}62, {B}63, ); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; }};"
 for lid, a, b in ((52, 60, 61), (50, 62, 63), (51, 64, 65), (53, 66, 67), (54, 68, 69)):
     out += f"\n\t\t{A}{lid} = {{isa = XCConfigurationList; buildConfigurations = ({A}{a}, {A}{b}, ); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; }};"
 out += f"\n\t}};\n\trootObject = {A}00 /* Project object */;\n}}\n"

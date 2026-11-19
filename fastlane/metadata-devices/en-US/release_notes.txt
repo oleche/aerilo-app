@@ -1,1 +1,4 @@
-The first breath.
+• Finds WhatsApp media and screen recordings.
+• A Home Screen widget with free storage and memory.
+• Siri and Shortcuts: "Tidy my photos with Aerilo".
+• The Device screen shows memory in use and processor load.

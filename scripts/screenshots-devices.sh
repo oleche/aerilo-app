@@ -12,12 +12,16 @@ run() { # simulator name, platform, products folder, output folder, seconds to s
   xcrun simctl bootstatus "$device" -b >/dev/null
   xcrun simctl install "$device" "build-ios/Build/Products/$products/Aerilo.app"
   # One launch to get past the first-start splash before any picture is taken.
-  xcrun simctl launch "$device" $BUNDLE --demo >/dev/null; sleep 8
+  xcrun simctl launch "$device" $BUNDLE --demo >/dev/null; sleep $((settle * 3))
+  # A second throwaway launch: on Vision Pro the first relaunch after install still shows the loading card.
+  xcrun simctl terminate "$device" $BUNDLE 2>/dev/null || true
+  xcrun simctl launch "$device" $BUNDLE --demo --shot result >/dev/null; sleep "$settle"
   local n=1
-  for shot in exhale result similar videos device; do
+  for shot in exhale result similar whatsapp videos device; do
     xcrun simctl terminate "$device" $BUNDLE 2>/dev/null || true
     xcrun simctl launch "$device" $BUNDLE --demo --shot $shot -AppleLanguages "(en)" -AppleLocale en_US >/dev/null
-    if [[ $shot == exhale ]]; then sleep 2.6; else sleep "$settle"; fi
+    # Vision Pro shows a loading card for several seconds; a picture taken too early shows only that.
+    if [[ $shot == exhale && $platform != visionOS ]]; then sleep 2.6; else sleep "$settle"; fi
     xcrun simctl io "$device" screenshot --type=png "$out/$n-$shot.png" 2>/dev/null
     n=$((n + 1))
   done
@@ -25,7 +29,7 @@ run() { # simulator name, platform, products folder, output folder, seconds to s
   xcrun simctl shutdown "$device"
 }
 run "Apple TV 4K (4th generation)" tvOS Debug-appletvsimulator artwork/raw/tvos 4
-run "Apple Vision Pro" visionOS Debug-xrsimulator artwork/raw/visionos 6
+run "Apple Vision Pro" visionOS Debug-xrsimulator artwork/raw/visionos 12
 
 # Headline, description and the finished look, into the fastlane folders.
 swift scripts/make-art.swift shots

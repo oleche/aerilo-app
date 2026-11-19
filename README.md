@@ -14,14 +14,18 @@ Native SwiftUI with Liquid Glass. Apple frameworks only, no third-party code. Ne
 | Health score out of 100, with reasons | yes | yes | |
 | Memory and processor use per app; stuck apps; growing memory | yes | yes | not allowed by the system |
 | Quit an app from Aerilo | yes | brings it forward for you to quit | |
+| Look inside an app: tabs, extensions, language tools, each with its memory | yes, and end one | yes, to see | |
 | Network use per app | yes | not allowed by the sandbox | |
-| Clear caches in the Home folder | yes | after you allow the folder | |
+| Clear caches in the Home folder, including caches of apps that are closed | yes | after you allow the folder | |
+| Large-file finder (moving to the Trash is always your click) | yes | yes | |
 | Clear the Chrome signing copy and test leftovers | yes | after you allow the temp folder | |
 | Remove unusable simulators and unused simulator versions | yes | not allowed by the sandbox | |
-| Photo tidying: duplicates, similar shots, old screenshots, large videos | yes | yes | yes |
+| Photo tidying: duplicates, similar shots, old screenshots, WhatsApp media, screen recordings, large videos | yes | yes | yes |
 | On-device assistant | yes | yes | yes, where the device has Apple Intelligence |
 | Activity log with export | yes | yes | yes |
-| Menu bar panel, Siri and Shortcuts, low-space notification | yes | yes | |
+| Menu bar panel, low-space notification | yes | yes | |
+| Siri and Shortcuts actions | yes | yes | yes |
+| Widget | health, memory, storage | health, memory, storage | free storage and memory (iPhone, iPad) |
 | Update check | daily, against aerilo.app | by the App Store | by the App Store |
 
 "Not allowed" rows were checked by running a probe inside the sandbox; see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).

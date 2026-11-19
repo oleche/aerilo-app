@@ -39,6 +39,10 @@ final class RealLibraryTests: XCTestCase {
         XCTAssertTrue(videos.exists, "The large video should be listed")
         XCTAssertFalse(videos.label.contains("suggested"), "Videos are never ticked for the user")
 
+        let whatsapp = app.buttons.matching(NSPredicate(format: "label CONTAINS 'From WhatsApp'")).firstMatch
+        XCTAssertTrue(whatsapp.exists, "The picture saved under a WhatsApp name should be listed")
+        XCTAssertFalse(whatsapp.label.contains("suggested"), "Nothing from a conversation is ticked for the user")
+
         let screenshots = app.buttons.matching(NSPredicate(format: "label CONTAINS 'Old screenshots'")).firstMatch
         XCTContext.runActivity(named: "Old screenshots listed: \(screenshots.exists)") { _ in }
 

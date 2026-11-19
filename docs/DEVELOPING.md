@@ -58,7 +58,7 @@ scripts/screenshots.sh           # Mac windows            -> fastlane/screenshot
 scripts/screenshots-ios.sh       # iPhone and iPad        -> fastlane/screenshots-ios
 scripts/screenshots-devices.sh   # Apple TV, Vision Pro   -> fastlane/screenshots-tvos, -visionos
 swift scripts/make-art.swift shots    # redo the finished pictures from the raw ones (the scripts above already do this)
-swift scripts/make-art.swift header   # banners and the social card, in marketing/
+swift scripts/make-art.swift header   # App Store header and search-results pictures (marketing/appstore/) and the social card
 swift scripts/make-art.swift duo      # drawn artwork for the iPhone Duo's two screens, in marketing/duo/
 swift scripts/make-icon.swift Aerilo/Assets.xcassets/AppIcon.appiconset     # Mac icon
 swift scripts/make-icon-ios.swift AeriloMobile/Assets.xcassets/AppIcon.appiconset
@@ -66,6 +66,8 @@ swift scripts/make-icon-layers.swift AeriloMobile/Assets.xcassets           # Ap
 ```
 
 Headlines and descriptions live in `make-art.swift` (`macCaptions`, `deviceCaptions`). The Mac script photographs real windows, so the screen must be unlocked and the terminal needs Screen Recording permission. The simulator scripts work with the screen locked. All screenshots use demo data, with drawn sample pictures in place of photos.
+
+The pictures in `marketing/appstore/` follow Apple's sizes exactly, which App Store Connect enforces: header 3840×1646, search results 3840×2560, universal 5244×2950, PNG with no transparency, and the artwork kept inside each one's safe area. They are uploaded by hand in App Store Connect (the version's page, "Header and Search Results"); they apply to iPhone and iPad only.
 
 ## Releasing
 
@@ -75,7 +77,7 @@ Set the version in one place: `VERSION` and `BUILD` at the top of `scripts/make-
 
 ```sh
 scripts/make-dmg.sh                 # build/Aerilo.dmg, for local testing
-scripts/make-dmg.sh --notarize      # signed with Developer ID, notarized, stapled
+scripts/make-dmg.sh --notarize      # signed with Developer ID (widget first, then the app), notarized, stapled
 scripts/release.sh "What changed."  # the above, then a GitHub release and ../aerilo-site/appcast.json
 ```
 

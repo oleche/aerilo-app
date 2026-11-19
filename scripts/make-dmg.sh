@@ -22,7 +22,10 @@ APP="$OUT/Build/Products/Release/Aerilo.app"
 if [[ "$NOTARIZE" == "--notarize" ]]; then
   IDENTITY=$(security find-identity -v -p codesigning | awk -F'"' '/Developer ID Application/{print $2; exit}')
   [[ -n "$IDENTITY" ]] || { echo "No Developer ID Application certificate in the keychain."; exit 1; }
-  codesign --force --deep --options runtime --timestamp --entitlements Config/Direct.entitlements --sign "$IDENTITY" "$APP"
+  # Inside out: the widget is its own sandboxed program and keeps its own entitlements.
+  codesign --force --options runtime --timestamp --entitlements Config/Widgets.entitlements --sign "$IDENTITY" "$APP/Contents/PlugIns/AeriloWidgets.appex"
+  codesign --force --options runtime --timestamp --entitlements Config/Direct.entitlements --sign "$IDENTITY" "$APP"
+  codesign --verify --deep --strict "$APP"
 fi
 
 mkdir -p "$STAGE"

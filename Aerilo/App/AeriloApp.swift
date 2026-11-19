@@ -31,6 +31,8 @@ enum Main {
                 let shot = Env.arg("--shot")
                 let root: AnyView = shot == "welcome" ? AnyView(WelcomeView {}.environment(AppModel.shared))
                     : shot == "settings" ? AnyView(SettingsView().environment(AppModel.shared))
+                    : shot == "widget" ? AnyView(WidgetPreview())
+                    : shot == "inside" ? AnyView(ZStack { Aurora(); InsightView(group: AppModel.shared.groups.first ?? AppGroup(name: "Browser")).environment(AppModel.shared) })
                     : AnyView(RootView().environment(AppModel.shared))
                 let host = NSHostingController(rootView: root)
                 host.sceneBridgingOptions = [.toolbars, .title]
@@ -40,7 +42,7 @@ enum Main {
                 window.title = "Aerilo"
                 window.toolbarStyle = .unified
                 window.appearance = NSAppearance(named: Env.arg("--appearance") == "dark" ? .darkAqua : .aqua)
-                if shot != "welcome" && shot != "settings" { window.setContentSize(NSSize(width: 1440, height: 900)) }
+                if shot != "welcome" && shot != "settings" && shot != "widget" { window.setContentSize(NSSize(width: 1440, height: 900)) }
                 window.center()
                 window.orderFrontRegardless()
                 if !CommandLine.arguments.contains("--no-activate") {
@@ -140,6 +142,20 @@ struct AeriloApp: App {
         model.screen = screen
         openWindow(id: "main")
         NSApp.activate()
+    }
+}
+
+/// Both widget sizes side by side, for a look at them without adding them to the desktop.
+struct WidgetPreview: View {
+    var body: some View {
+        HStack(spacing: 24) {
+            StatusWidgetView(reading: .sample, preview: .systemSmall)
+                .padding(16).frame(width: 170, height: 170).background(WidgetSky()).clipShape(.rect(cornerRadius: 24))
+            StatusWidgetView(reading: .sample, preview: .systemMedium)
+                .padding(16).frame(width: 364, height: 170).background(WidgetSky()).clipShape(.rect(cornerRadius: 24))
+        }
+        .padding(40)
+        .background(Color(white: 0.92))
     }
 }
 
@@ -289,6 +305,44 @@ enum SelfTest {
                 print("hash bit differences: burst \(pairs.map { ($0.0.hash! ^ $0.1.hash!).nonzeroBitCount }), unrelated \(strangers.map { ($0.0.hash! ^ $0.1.hash!).nonzeroBitCount })")
             } else {
                 print("photo compare: test pictures not found in \(folder)")
+            }
+        }
+        // Reading what a helper process is from its own label.
+        let cases: [(String, String, AppInsight.Kind, String)] = [
+            ("Google Chrome Helper (Renderer)", "/A/Chrome Helper --type=renderer --lang=en", .tabs, "Tab or window"),
+            ("Google Chrome Helper (Renderer)", "/A/Chrome Helper --type=renderer --extension-process", .extensions, "Extension"),
+            ("Google Chrome Helper (GPU)", "/A/Helper --type=gpu-process", .graphics, "Graphics"),
+            ("Google Chrome Helper", "/A/Helper --type=utility --utility-sub-type=network.mojom.NetworkService", .services, "Network"),
+            ("Code Helper (Plugin)", "/A/Code Helper --type=utility --utility-sub-type=node.mojom.NodeService", .extensions, "Extension host"),
+            ("node", "/usr/bin/node /Users/x/.vscode/extensions/ms-python.vscode-pylance-2026.1.1/dist/server.js", .tools, "ms-python.vscode-pylance"),
+            ("rust-analyzer", "/Users/x/.cursor/extensions/rust-lang.rust-analyzer-0.3.2/server/rust-analyzer", .tools, "rust-lang.rust-analyzer"),
+        ]
+        let read = cases.allSatisfy { c in
+            let r = Insights.classify(name: c.0, arguments: c.1, isMain: false, insideApp: true)
+            return r.kind == c.2 && r.title == c.3
+        }
+        // A child of a child, outside the bundle, still belongs to the app.
+        var a = ProcInfo(pid: 10, name: "Code"); a.ownerApp = "Code"
+        var b = ProcInfo(pid: 11, name: "Code Helper (Plugin)"); b.ownerApp = "Code"; b.parent = 10
+        var c = ProcInfo(pid: 12, name: "node"); c.parent = 11; c.footprint = 5
+        var d = ProcInfo(pid: 13, name: "unrelated"); d.parent = 1
+        let tree = Insights.build(app: "Code", mainPID: 10, procs: [a, b, c, d]) { pid in pid == 12 ? "node /Users/x/.vscode/extensions/dbaeumer.vscode-eslint-3.0.1/server.js" : pid == 11 ? "--type=utility --utility-sub-type=node.mojom.NodeService" : "" }
+        let grouped = tree.sections.flatMap(\.parts).count == 3 && tree.sections.contains { $0.kind == .tools && $0.parts.first?.title == "dbaeumer.vscode-eslint" }
+        print("look inside: reads helper labels \(read), follows the tools an app starts \(grouped)")
+        if CommandLine.arguments.contains("--inside") {
+            // The two largest multi-process apps running now, by kind of helper. Names are not printed.
+            var byApp: [String: (count: Int, bytes: UInt64, main: pid_t?)] = [:]
+            for p in procs {
+                let key = p.ownerApp ?? p.name
+                var e = byApp[key] ?? (0, 0, nil)
+                e.count += 1; e.bytes += p.footprint
+                if p.ownerApp != nil, p.name == key { e.main = p.pid }
+                byApp[key] = e
+            }
+            for (index, entry) in byApp.filter({ $0.value.count >= 4 }).sorted(by: { $0.value.bytes > $1.value.bytes }).prefix(3).enumerated() {
+                let insight = Insights.build(app: entry.key, mainPID: entry.value.main, procs: procs)
+                let parts = insight.sections.map { "\($0.kind.rawValue) x\($0.parts.count) \(Fmt.mem($0.footprint))" }.joined(separator: " | ")
+                print("inside app \(index + 1) (\(Fmt.mem(insight.total))): \(parts)")
             }
         }
         let timing = DispatchSemaphore(value: 0)

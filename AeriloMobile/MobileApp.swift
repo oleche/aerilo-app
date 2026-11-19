@@ -97,6 +97,8 @@ struct MobileHome: View {
     private var scale: CGFloat {
         #if os(tvOS)
         return 1.45
+        #elseif os(visionOS)
+        return 1.3
         #else
         return 1
         #endif
@@ -192,44 +194,6 @@ struct MobileHome: View {
 }
 
 // MARK: - Device
-
-/// What the system shares about the device as a whole. It shares nothing about other apps: no
-/// list of them, and no memory or processor figures for any app but this one.
-enum DeviceLoad {
-    /// Memory in use across the device, 0...1.
-    static func memoryFraction() -> Double? {
-        var vm = vm_statistics64()
-        var count = mach_msg_type_number_t(MemoryLayout<vm_statistics64_data_t>.size / MemoryLayout<integer_t>.size)
-        let kr = withUnsafeMutablePointer(to: &vm) {
-            $0.withMemoryRebound(to: integer_t.self, capacity: Int(count)) { host_statistics64(mach_host_self(), HOST_VM_INFO64, $0, &count) }
-        }
-        guard kr == KERN_SUCCESS else { return nil }
-        let used = UInt64(vm.internal_page_count) &- UInt64(vm.purgeable_count) + UInt64(vm.wire_count) + UInt64(vm.compressor_page_count)
-        let total = ProcessInfo.processInfo.physicalMemory
-        guard total > 0 else { return nil }
-        return min(1, Double(used * UInt64(getpagesize())) / Double(total))
-    }
-
-    private static func ticks() -> (busy: UInt64, total: UInt64)? {
-        var cpu = host_cpu_load_info()
-        var count = mach_msg_type_number_t(MemoryLayout<host_cpu_load_info_data_t>.size / MemoryLayout<integer_t>.size)
-        let kr = withUnsafeMutablePointer(to: &cpu) {
-            $0.withMemoryRebound(to: integer_t.self, capacity: Int(count)) { host_statistics(mach_host_self(), HOST_CPU_LOAD_INFO, $0, &count) }
-        }
-        guard kr == KERN_SUCCESS else { return nil }
-        let t = cpu.cpu_ticks
-        let busy = UInt64(t.0) + UInt64(t.1) + UInt64(t.3)
-        return (busy, busy + UInt64(t.2))
-    }
-
-    /// Processor load across all cores over one second, 0...1.
-    static func processorFraction() async -> Double? {
-        guard let a = ticks() else { return nil }
-        try? await Task.sleep(for: .seconds(1))
-        guard let b = ticks(), b.total > a.total else { return nil }
-        return Double(b.busy - a.busy) / Double(b.total - a.total)
-    }
-}
 
 struct DeviceView: View {
     @State private var free: Int64 = 0

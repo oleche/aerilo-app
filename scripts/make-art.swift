@@ -3,7 +3,8 @@
 //   swift scripts/make-art.swift shots    every raw screenshot in artwork/raw/<set>/ becomes a finished
 //                                         picture in its fastlane folder: headline, description, and the
 //                                         screen floating on the app's own sky, with no frame around it
-//   swift scripts/make-art.swift header   banners and the social card in marketing/
+//   swift scripts/make-art.swift header   the App Store Header and Search Results artwork in marketing/appstore/,
+//                                         at Apple's exact sizes, and the social card in marketing/
 //   swift scripts/make-art.swift duo      drawn artwork for the iPhone Duo's two screens in marketing/duo/
 //   swift scripts/make-art.swift all
 //
@@ -168,6 +169,7 @@ let deviceCaptions: [String: Caption] = [
     "exhale": Caption(headline: "One tap tidies your photos", detail: "Aerilo looks through your library and gathers what you no longer need."),
     "result": Caption(headline: "See what could go", detail: "Duplicates, similar shots, old screenshots and large videos, counted and sized."),
     "similar": Caption(headline: "Keep the best, drop the rest", detail: "Aerilo suggests which shot to keep. You tick, you decide."),
+    "whatsapp": Caption(headline: "Sort out WhatsApp media", detail: "Everything WhatsApp saved to your library, largest first. You choose what goes."),
     "videos": Caption(headline: "Find your largest videos", detail: "The biggest space savers. None are ever ticked for you."),
     "device": Caption(headline: "Know your device", detail: "Storage, memory, processor load, temperature and battery at a glance."),
     "log": Caption(headline: "Nothing happens in secret", detail: "Every look and every deletion goes into a log you can share."),
@@ -176,6 +178,7 @@ let macCaptions: [String: Caption] = [
     "breathe": Caption(headline: "One tap. Your Mac breathes.", detail: "Aerilo clears what your Mac no longer needs and tells you what is slowing it down."),
     "result": Caption(headline: "It thinks before it acts", detail: "On-device Apple Intelligence picks what helps most. Nothing leaves your Mac."),
     "activity": Caption(headline: "See what weighs on your Mac", detail: "Stuck apps and growing memory, with helpers counted under their app."),
+    "inside": Caption(headline: "Look inside any app", detail: "See which tabs, extensions and helpers hold the memory."),
     "network": Caption(headline: "Know what uses your connection", detail: "Live download and upload for every app."),
     "storage": Caption(headline: "Space back, safely", detail: "Measured first, and cleared only if it rebuilds itself."),
     "photos": Caption(headline: "Tidy your photos too", detail: "Duplicates, similar shots and large videos, reviewed before anything goes."),
@@ -195,7 +198,15 @@ func finish(_ sourcePath: String, _ caption: Caption, to outPath: String, cropTo
     // 1. Sky: the screenshot itself, blurred until only its colours are left. The top bar is cut
     //    off first, or the clock and icons would leave a dark smudge.
     let lower = source.cropping(to: CGRect(x: 0, y: CGFloat(Int(H * max(cropTop, 0.07))), width: W, height: H * (1 - max(cropTop, 0.07))))!
-    let stretched = CIImage(cgImage: lower).transformed(by: CGAffineTransform(scaleX: 1, y: H / CGFloat(lower.height)))
+    // A window picture has see-through corners; laid over its own centre colour they don't blur into dark patches.
+    let flat = canvas(lower.width, lower.height)
+    var mid = [UInt8](repeating: 0, count: 4)
+    let dot = CGContext(data: &mid, width: 1, height: 1, bitsPerComponent: 8, bytesPerRow: 4, space: space, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+    dot.draw(lower, in: CGRect(x: -CGFloat(lower.width) * 0.5, y: -CGFloat(lower.height) * 0.9, width: CGFloat(lower.width), height: CGFloat(lower.height)))
+    flat.setFillColor(CGColor(colorSpace: space, components: [CGFloat(mid[0]) / 255, CGFloat(mid[1]) / 255, CGFloat(mid[2]) / 255, 1])!)
+    flat.fill(CGRect(x: 0, y: 0, width: lower.width, height: lower.height))
+    flat.draw(lower, in: CGRect(x: 0, y: 0, width: lower.width, height: lower.height))
+    let stretched = CIImage(cgImage: flat.makeImage()!).transformed(by: CGAffineTransform(scaleX: 1, y: H / CGFloat(lower.height)))
     let input = stretched.clampedToExtent()
     let blurred = input.applyingFilter("CIGaussianBlur", parameters: [kCIInputRadiusKey: min(W, H) * 0.11]).cropped(to: CGRect(x: 0, y: 0, width: W, height: H))
     if let bg = ci.createCGImage(blurred, from: CGRect(x: 0, y: 0, width: W, height: H)) { ctx.draw(bg, in: CGRect(x: 0, y: 0, width: W, height: H)) }
@@ -323,6 +334,40 @@ func header(_ w: Int, _ h: Int, _ name: String) {
     save(ctx, "marketing/\(name)")
 }
 
+// MARK: - App Store creative assets (Header and Search Results)
+
+/// Apple's sizes for the product page header, the search results image, and the "universal" image
+/// that can fill both. Everything that matters sits inside the art safe area, because the store
+/// crops and overlays the rest; the sky and ripples run across the whole canvas.
+///   https://developer.apple.com/help/app-store-connect/reference/app-information/creative-assets-specifications
+/// The safe area's origin is measured from the top left. No transparency, no web addresses, no prices.
+func creative(_ w: Int, _ h: Int, safe: CGRect, to name: String) {
+    let ctx = canvas(w, h)
+    let W = CGFloat(w), H = CGFloat(h)
+    sky(ctx, W, H)
+    // Top-left origin -> bottom-left origin.
+    let area = CGRect(x: safe.minX, y: H - safe.minY - safe.height, width: safe.width, height: safe.height)
+    let r = min(area.height * 0.36, area.width * 0.17)
+    let centre = CGPoint(x: area.minX + r * 1.05, y: area.midY)
+    ripples(ctx, centre: centre, first: r * 1.5, step: r * 0.62, count: 16, width: r * 0.022, motes: 200, seed: w)
+    orb(ctx, centre: centre, radius: r, label: "Breathe")
+    let ink = NSColor(srgbRed: 0.11, green: 0.10, blue: 0.14, alpha: 1)
+    let left = centre.x + r * 1.55
+    let width = area.maxX - left
+    let nameSize = min(area.height * 0.34, width * 0.3)
+    text(ctx, "Aerilo", centre: CGPoint(x: left + width / 2, y: area.midY + nameSize * 0.42), width: width, font: rounded(nameSize, .bold), colour: ink, align: .left, tracking: -nameSize * 0.02)
+    text(ctx, "One tap tidies your photos", centre: CGPoint(x: left + width / 2, y: area.midY - nameSize * 0.42), width: width,
+         font: rounded(nameSize * 0.27, .medium), colour: ink.withAlphaComponent(0.72), align: .left)
+    save(ctx, "marketing/appstore/\(name)")
+}
+
+func creatives() {
+    creative(3840, 1646, safe: CGRect(x: 1097, y: 493, width: 1646, height: 661), to: "header-3840x1646.png")
+    creative(3840, 2560, safe: CGRect(x: 836, y: 765, width: 2168, height: 1030), to: "search-results-3840x2560.png")
+    creative(5244, 2950, safe: CGRect(x: 1921, y: 660, width: 1402, height: 962), to: "universal-5244x2950.png")
+    print("drew App Store header, search results and universal artwork in marketing/appstore")
+}
+
 // MARK: - iPhone Duo
 
 /// Drawn artwork, not screenshots: the folded screen shows the one button; the unfolded screen
@@ -377,9 +422,7 @@ func duo() {
 let what = CommandLine.arguments.dropFirst().first ?? "all"
 if what == "shots" || what == "all" { shots() }
 if what == "header" || what == "all" {
-    header(1920, 1080, "header-1920x1080.png")
-    header(4320, 1080, "header-4320x1080.png")
-    header(1280, 640, "social-1280x640.png")
-    print("drew headers in marketing")
+    creatives()
+    header(1280, 640, "social-1280x640.png")   // link previews and the GitHub card, not an App Store asset
 }
 if what == "duo" || what == "all" { duo() }

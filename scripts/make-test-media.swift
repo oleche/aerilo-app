@@ -55,6 +55,8 @@ save(picture(scene: 1, nudge: 0), "duplicate.jpg", taken: base)
 for i in 0..<3 { save(picture(scene: 2, nudge: CGFloat(i) * 6), "burst-\(i).jpg", taken: base.addingTimeInterval(3600 + Double(i))) }
 // Three unrelated pictures, minutes apart: these must not be suggested.
 for i in 0..<3 { save(picture(scene: 5 + i * 3, nudge: 0), "single-\(i).jpg", taken: base.addingTimeInterval(7200 + Double(i) * 600)) }
+// One picture named the way WhatsApp names what it saves.
+save(picture(scene: 21, nudge: 0), "IMG-20260101-WA0007.jpg", taken: base.addingTimeInterval(20_000))
 // A screenshot from 60 days ago, marked the way iOS marks its own.
 save(picture(scene: 0, nudge: 0, w: 1320, h: 2868, screenshot: true), "screenshot.png", taken: Date().addingTimeInterval(-60 * day), type: .png, comment: "Screenshot")
 print("wrote test pictures to \(dir)")

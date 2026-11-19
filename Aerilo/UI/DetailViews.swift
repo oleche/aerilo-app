@@ -28,6 +28,7 @@ struct ActivityView: View {
     @Environment(AppModel.self) private var model
     @State private var byCPU = false
     @State private var confirm: AppGroup?
+    @State private var inside: AppGroup?
 
     var body: some View {
         let sorted = model.groups.sorted { byCPU ? $0.cpu > $1.cpu : $0.footprint > $1.footprint }.prefix(14)
@@ -63,6 +64,7 @@ struct ActivityView: View {
                 .glassCard()
             }
         }
+        .sheet(item: $inside) { group in InsightView(group: group).environment(model) }
         .confirmationDialog("Force \(confirm?.name ?? "") to quit?", isPresented: Binding(get: { confirm != nil }, set: { if !$0 { confirm = nil } }), presenting: confirm) { group in
             Button("Force Quit", role: .destructive) {
                 if let pid = group.mainPID { model.stop(pid: pid, force: true) }
@@ -100,7 +102,15 @@ struct ActivityView: View {
                     if members.contains(where: { $0.growth != nil }) { Badge(text: "Memory growing", color: .orange) }
                     if members.contains(where: \.isZombie) { Badge(text: "Unfinished", color: .gray) }
                 }
-                Text(group.count == 1 ? "1 process" : "\(group.count) processes").font(.caption).foregroundStyle(.secondary)
+                if Insights.isWorthOpening(group) {
+                    Button { inside = group } label: {
+                        Text("\(group.count) processes · Look inside").font(.caption).underline()
+                    }
+                    .buttonStyle(.plain).foregroundStyle(.secondary)
+                    .help("See what \(group.name)'s processes are and which hold the most")
+                } else {
+                    Text(group.count == 1 ? "1 process" : "\(group.count) processes").font(.caption).foregroundStyle(.secondary)
+                }
             }
             Spacer()
             Text(String(format: "%.0f%%", group.cpu)).monospacedDigit().foregroundStyle(.secondary).frame(width: 52, alignment: .trailing)
@@ -233,6 +243,8 @@ struct StorageView: View {
                 Label("Nothing to clear. This Mac is tidy.", systemImage: "checkmark.circle").foregroundStyle(.secondary).glassCard()
             }
 
+            largeFiles
+
             HStack {
                 if model.measuring { ProgressView().controlSize(.small); Text("Measuring…").foregroundStyle(.secondary) }
                 Spacer()
@@ -247,6 +259,44 @@ struct StorageView: View {
             }
         }
         .task { await model.measureStorage() }
+    }
+
+    private static let opened: RelativeDateTimeFormatter = {
+        let f = RelativeDateTimeFormatter()
+        f.unitsStyle = .full
+        return f
+    }()
+
+    /// Large files are the user's own, so they are only listed: each one can be shown in Finder or
+    /// moved to the Trash by hand.
+    private var largeFiles: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack {
+                Text("Large files").font(.system(.headline, design: .rounded))
+                Spacer()
+                if model.findingBigFiles { ProgressView().controlSize(.small) }
+                Button(model.bigFiles.isEmpty ? "Find Large Files" : "Look Again") { Task { await model.findLargeFiles() } }
+                    .buttonStyle(.glass).disabled(model.findingBigFiles || (Env.isSandboxed && !model.hasHome))
+            }
+            Text("Files over 200 MB in Downloads, Documents, Desktop and Movies. Aerilo only lists them. Moving one to the Trash is your choice, and you can take it back out.")
+                .font(.caption).foregroundStyle(.secondary).padding(.top, 2)
+            ForEach(model.bigFiles.prefix(15)) { file in
+                Divider().padding(.top, 8)
+                HStack(spacing: 10) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(file.url.lastPathComponent).font(.system(.body, design: .rounded, weight: .medium)).lineLimit(1).truncationMode(.middle)
+                        Text(file.folder + (file.lastOpened.map { " · opened " + Self.opened.localizedString(for: $0, relativeTo: Date()) } ?? ""))
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Text(Fmt.bytes(file.bytes)).monospacedDigit().foregroundStyle(.secondary)
+                    Button("Reveal") { NSWorkspace.shared.activateFileViewerSelecting([file.url]) }.buttonStyle(.glass).controlSize(.small)
+                    Button("Move to Trash") { model.moveToTrash(file) }.buttonStyle(.glass).controlSize(.small)
+                }
+                .padding(.top, 8)
+            }
+        }
+        .glassCard()
     }
 
     @ViewBuilder

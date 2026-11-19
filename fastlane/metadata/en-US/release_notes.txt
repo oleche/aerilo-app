@@ -1,1 +1,4 @@
-Photo tidying on the Mac, an explained health score, and fixes found by new end-to-end tests.
+• Look inside an app: see what its tabs, extensions and helpers hold.
+• A widget with health, memory and free storage.
+• Clear the caches of closed apps, and find large files you forgot about.
+• Photo tidying now also finds WhatsApp media and screen recordings.

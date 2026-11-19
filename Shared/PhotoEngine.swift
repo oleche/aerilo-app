@@ -20,7 +20,7 @@ extension Image { init(platform: PlatformImage) { self.init(nsImage: platform) }
 // MARK: - What Aerilo looks for
 
 enum PhotoKind: String, CaseIterable, Identifiable, Sendable {
-    case duplicates, similar, screenshots, videos
+    case duplicates, similar, screenshots, whatsapp, recordings, videos
 
     var id: String { rawValue }
     var title: String {
@@ -28,6 +28,8 @@ enum PhotoKind: String, CaseIterable, Identifiable, Sendable {
         case .duplicates: return "Exact duplicates"
         case .similar: return "Similar shots"
         case .screenshots: return "Old screenshots"
+        case .whatsapp: return "From WhatsApp"
+        case .recordings: return "Screen recordings"
         case .videos: return "Largest videos"
         }
     }
@@ -36,6 +38,8 @@ enum PhotoKind: String, CaseIterable, Identifiable, Sendable {
         case .duplicates: return "square.on.square"
         case .similar: return "square.stack.3d.down.right"
         case .screenshots: return "camera.viewfinder"
+        case .whatsapp: return "bubble.left.and.bubble.right"
+        case .recordings: return "record.circle"
         case .videos: return "video"
         }
     }
@@ -44,11 +48,14 @@ enum PhotoKind: String, CaseIterable, Identifiable, Sendable {
         case .duplicates: return "The same picture saved more than once. Aerilo keeps one of each."
         case .similar: return "Taken seconds apart and nearly the same. Aerilo suggests keeping the best one."
         case .screenshots: return "Screenshots older than 30 days."
+        case .whatsapp: return "Pictures and videos WhatsApp saved to your library. Nothing is ticked: these are your conversations."
+        case .recordings: return "Recordings of your screen. Nothing is ticked here."
         case .videos: return "Nothing is ticked here. Choose the ones you no longer need."
         }
     }
-    /// Videos are never pre-selected: they are the hardest thing to get back.
-    var preselects: Bool { self != .videos }
+    /// Only clear leftovers are pre-selected. Videos, recordings and anything from a conversation
+    /// are personal, and the hardest things to get back.
+    var preselects: Bool { self == .duplicates || self == .similar || self == .screenshots }
 }
 
 struct PhotoItem: Identifiable, Hashable, Sendable {
@@ -86,8 +93,26 @@ enum PhotoScanner {
         return found
     }
 
+    /// The name the picture or video was saved under, which is how apps such as WhatsApp mark theirs.
+    static func filename(of asset: PHAsset) -> String {
+        guard let resource = PHAssetResource.assetResources(for: asset).first else { return "" }
+        if #available(iOS 27, macOS 27, tvOS 27, visionOS 27, *) { return resource.filename ?? "" }
+        return resource.originalFilename
+    }
+
+    /// WhatsApp names what it saves "IMG-20260101-WA0007.jpg" or "WhatsApp Image 2026-01-01 at 10.00.00.jpeg".
+    static func isFromWhatsApp(_ filename: String) -> Bool {
+        if filename.hasPrefix("WhatsApp ") { return true }
+        return filename.range(of: #"^[A-Z]{3}-\d{8}-WA\d+"#, options: .regularExpression) != nil
+    }
+
     /// Bytes this asset takes on the device: the stored picture, or the video file.
     static func bytes(of asset: PHAsset) -> Int64 {
+        // The system reports sizes directly from version 27 on, which is instant.
+        if #available(iOS 27, macOS 27, tvOS 27, visionOS 27, *) {
+            let sizes = PHAssetResource.assetResources(for: asset).compactMap(\.dataSize)
+            if !sizes.isEmpty { return Int64(sizes.reduce(0, +)) }
+        }
         guard asset.mediaType == .video else { return Int64(imageData(of: asset)?.count ?? 0) }
         let options = PHVideoRequestOptions()
         options.isNetworkAccessAllowed = false
@@ -260,7 +285,35 @@ enum PhotoScanner {
             groups.append(PhotoGroup(id: "screenshots", kind: .screenshots, items: shots.map { item($0) }, keepID: nil))
         }
 
-        // 4. The largest videos.
+        // 4. What WhatsApp saved: by its file names, and by the album it keeps.
+        progress("Looking for pictures saved by WhatsApp")
+        var whatsappIDs = Set<String>()
+        let albums = PHAssetCollection.fetchAssetCollections(with: .album, subtype: .albumRegular, options: nil)
+        albums.enumerateObjects { album, _, _ in
+            guard (album.localizedTitle ?? "").hasPrefix("WhatsApp") else { return }
+            PHAsset.fetchAssets(in: album, options: nil).enumerateObjects { asset, _, _ in whatsappIDs.insert(asset.localIdentifier) }
+        }
+        var named = 0
+        let fromWhatsApp = assets.filter { asset in
+            guard !taken.contains(asset.localIdentifier) else { return false }
+            if whatsappIDs.contains(asset.localIdentifier) { return true }
+            // Reading names is quick but not free; stop after the newest 20,000.
+            named += 1
+            return named <= 20_000 && isFromWhatsApp(filename(of: asset))
+        }
+        if !fromWhatsApp.isEmpty {
+            groups.append(PhotoGroup(id: "whatsapp", kind: .whatsapp, items: fromWhatsApp.map { item($0) }.sorted { $0.bytes > $1.bytes }, keepID: nil))
+            fromWhatsApp.forEach { taken.insert($0.localIdentifier) }
+        }
+
+        // 5. Screen recordings.
+        let recordings = assets.filter { $0.mediaType == .video && $0.mediaSubtypes.contains(.videoScreenRecording) && !taken.contains($0.localIdentifier) }
+        if !recordings.isEmpty {
+            groups.append(PhotoGroup(id: "recordings", kind: .recordings, items: recordings.map { item($0) }.sorted { $0.bytes > $1.bytes }, keepID: nil))
+            recordings.forEach { taken.insert($0.localIdentifier) }
+        }
+
+        // 6. The largest videos.
         progress("Measuring videos")
         let videos = assets.filter { $0.mediaType == .video && !taken.contains($0.localIdentifier) }
             .map { item($0) }
@@ -486,6 +539,10 @@ enum PhotoDemo {
             groups.append(PhotoGroup(id: "sim\(i)", kind: .similar, items: g, keepID: g[1].id))
         }
         groups.append(PhotoGroup(id: "screenshots", kind: .screenshots, items: items(48, seed: 200, bytes: 2 * mb, vary: true), keepID: nil))
+        groups.append(PhotoGroup(id: "whatsapp", kind: .whatsapp, items: items(64, seed: 400, bytes: 3 * mb / 2, vary: true), keepID: nil))
+        var recorded = items(5, seed: 500, bytes: 0, video: true, vary: true)
+        for (i, size) in [620, 310, 240, 95, 60].enumerated() { recorded[i].bytes = Int64(size) * mb }
+        groups.append(PhotoGroup(id: "recordings", kind: .recordings, items: recorded, keepID: nil))
         var videos = items(12, seed: 300, bytes: 0, video: true, vary: true)
         for (i, size) in [4200, 3100, 2650, 1900, 1420, 1180, 960, 740, 610, 480, 350, 220].enumerated() { videos[i].bytes = Int64(size) * mb }
         groups.append(PhotoGroup(id: "videos", kind: .videos, items: videos, keepID: nil))
@@ -498,7 +555,7 @@ enum PhotoDemo {
     static func breathe(_ m: PhotoModel) async {
         m.steps = []
         m.setPhase(.inhale)
-        for text in ["Looking for exact duplicates", "Comparing shots taken moments apart", "Finding old screenshots", "Measuring videos"] {
+        for text in ["Looking for exact duplicates", "Comparing shots taken moments apart", "Looking for pictures saved by WhatsApp", "Measuring videos"] {
             m.steps.append(text)
             try? await Task.sleep(for: .seconds(0.8))
         }

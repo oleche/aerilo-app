@@ -185,6 +185,8 @@ final class AppModel {
     var hasTemp = Cleaner.tempRoot != nil
     var processesReadable = true
     var updatePrepared = false
+    var bigFiles: [BigFile] = []
+    var findingBigFiles = false
     /// What Aerilo is doing right now, in plain words, and the steps of the current run so far.
     var activity = ""
     var steps: [String] = []
@@ -396,6 +398,36 @@ final class AppModel {
             accepted = kill(pid, force ? SIGKILL : SIGTERM) == 0
         }
         Audit.record("action.quit", ["name": name, "pid": Int(pid), "force": force, "accepted": accepted])
+        return accepted
+    }
+
+    /// Looks for large files in Downloads, Documents, Desktop and Movies. Only lists them.
+    func findLargeFiles() async {
+        guard !Env.isDemo, !findingBigFiles, let home = Cleaner.home else { return }
+        findingBigFiles = true
+        bigFiles = await Task.detached(priority: .utility) { LargeFiles.scan(home: home) }.value
+        findingBigFiles = false
+        Audit.record("files.scan", ["found": bigFiles.count, "bytes": bigFiles.reduce(Int64(0)) { $0 + $1.bytes }])
+    }
+
+    /// Moves one file to the Trash, where it stays until the user empties it.
+    func moveToTrash(_ file: BigFile) {
+        guard !Env.isDemo else { return }
+        do {
+            try FileManager.default.trashItem(at: file.url, resultingItemURL: nil)
+            bigFiles.removeAll { $0.id == file.id }
+            Audit.record("files.trash", ["name": file.url.lastPathComponent, "bytes": file.bytes, "paths": [file.url.path]])
+        } catch {
+            Audit.record("files.trash.failed", ["name": file.url.lastPathComponent])
+        }
+    }
+
+    /// Ends one helper of an app (a tab's process, a language tool), leaving the app running.
+    @discardableResult
+    func end(pid: pid_t, title: String, app: String) -> Bool {
+        guard !Env.isDemo, !Env.isSandboxed, pid > 1, pid != getpid() else { return false }
+        let accepted = kill(pid, SIGTERM) == 0
+        Audit.record("action.end", ["app": app, "what": title, "pid": Int(pid), "accepted": accepted])
         return accepted
     }
 

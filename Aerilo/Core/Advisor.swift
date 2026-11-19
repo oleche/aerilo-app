@@ -111,6 +111,24 @@ enum Advisor {
         return Advice(headline: headline, steps: findings.map { Advice.Step(id: $0.id, reason: $0.detail) }, source: .rules)
     }
 
+    /// One or two sentences on where an app's memory is and what to do about it. The model sees
+    /// category names and sizes only.
+    static func explain(_ insight: AppInsight) async -> String? {
+        guard isReady, insight.total > 0 else { return nil }
+        var lines = ["\(insight.app) uses \(Fmt.mem(insight.total)) in total, split like this:"]
+        for section in insight.sections {
+            let top = section.parts.first.map { " The largest single one holds \(Fmt.mem($0.footprint))." } ?? ""
+            lines.append("- \(section.kind.rawValue): \(section.parts.count) processes, \(Fmt.mem(section.footprint)).\(top)")
+        }
+        let facts = lines.joined(separator: "\n")
+        let rules = "You are Aerilo, a calm assistant for one Mac. Given how an app's memory is split, say in at most two short plain sentences where most of it is and the gentlest thing the person could do. Use only the numbers given. No jargon."
+        let text: String? = await Timeout.run(seconds: 12) {
+            try? await LanguageModelSession(instructions: rules).respond(to: facts).content
+        }
+        let trimmed = text?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return (trimmed?.isEmpty ?? true) ? nil : trimmed
+    }
+
     /// Free-form question about this Mac, answered on device from the current measurements.
     static func answer(_ question: String, sys: SystemSnapshot, findings: [Finding], freed: Int64) async -> String? {
         guard isReady else { return nil }

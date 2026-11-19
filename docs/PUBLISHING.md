@@ -7,9 +7,9 @@ What is already done, what is left, and who does each step. Commands are explain
 | Channel | State |
 |---|---|
 | Mac download (DMG) | Published. Signed, notarized, on GitHub Releases. Anyone can download and run it. |
-| Website | Written, not hosted yet. |
-| App Store listing (Mac, iPhone and iPad, Apple TV, Vision Pro) | Text, categories, screenshots and review notes are uploaded. Version 1.0.1, "Prepare for Submission". |
-| App Store builds | Uploaded for all four platforms (version 1.0.1) and processed. Not yet attached to the listing. |
+| Website | In the `aerilo-site` repository, with a comparison article, `sitemap.xml` and `robots.txt`. |
+| App Store listing (Mac, iPhone and iPad, Apple TV, Vision Pro) | Text, categories, screenshots and review notes are uploaded. Version 1.0.2, "Prepare for Submission". |
+| App Store builds | Uploaded for all four platforms (version 1.0.2, build 3). Not yet attached to the listing. |
 | App Store review | Not submitted. |
 
 ## What each edition can do
@@ -17,12 +17,13 @@ What is already done, what is left, and who does each step. Commands are explain
 | | Downloaded from aerilo.app | From the App Store |
 |---|---|---|
 | Platforms | Mac | Mac, iPhone, iPad, Apple TV, Vision Pro |
-| Mac: Breathe, health score, per-app memory and processor, stuck apps, growing memory, photo tidying, assistant, log | yes | yes |
+| Mac: Breathe, health score, per-app memory and processor, stuck apps, growing memory, large-file finder, photo tidying, assistant, widget, log | yes | yes |
+| Mac: look inside an app (tabs, extensions, tools) | yes, and end one | yes, to see |
 | Mac: quit an app from Aerilo | yes | no: it brings the app forward |
 | Mac: network use per app | yes | no |
 | Mac: remove unusable Xcode simulators | yes | no |
 | Mac: clear caches | yes | after allowing the Home folder once |
-| Devices: photo tidying, device screen, log | | yes |
+| Devices: photo tidying, device screen, widget (iPhone, iPad), Siri actions, log | | yes |
 | Updates | checks aerilo.app daily and offers the new download | through the App Store |
 | Price | free | free |
 
@@ -36,6 +37,7 @@ Nothing is requested at install. Each permission is asked the first time it is n
 |---|---|---|---|
 | Mac App Store | Home folder | To measure and clear caches inside it | A folder chooser, once |
 | Mac App Store | Temporary folder (optional) | To clear leftovers outside the Home folder | A folder chooser, once |
+| Both Mac editions | Downloads, Documents, Desktop (optional) | Only when the user presses "Find large files" | System prompt per folder, with a purpose text |
 | Mac download | none required | It runs with the user's own file access | |
 | Mac download | Full Disk Access (optional) | Avoids a prompt per app when clearing other apps' leftovers | The user turns it on in System Settings |
 | Both Mac editions | Photos (optional) | Only when the user opens Photos and starts a look | System prompt |
@@ -43,7 +45,7 @@ Nothing is requested at install. Each permission is asked the first time it is n
 | Both Mac editions | Open at login (optional) | Keeps the menu bar icon after a restart | A switch in Settings |
 | iPhone, iPad, Apple TV, Vision Pro | Photos | The whole purpose of the app | System prompt on the first breath |
 
-Declared to Apple: the photo-library purpose text, the App Sandbox with user-selected files, bookmarks and Photos (Mac App Store), and a privacy manifest that says no data is collected and names the three system readings used (free storage, time since restart, the app's own settings).
+Declared to Apple: the photo-library purpose text, the App Sandbox with user-selected files, bookmarks and Photos (Mac App Store), and a privacy manifest that says no data is collected and names the four system readings used (free storage, time since restart, file dates, the app's own settings). The widget and Siri actions need no permission. The DMG edition carries the Photos entitlement too; without it the hardened runtime would refuse the photo prompt.
 
 ## What could get it rejected, and what was done about each
 
@@ -71,7 +73,7 @@ The app's Help links, the App Store listing (support and privacy pages) and the 
 - Point the aerilo.app domain at any static host (GitHub Pages, Cloudflare Pages, Netlify). The `CNAME` file already says `aerilo.app`.
 - After it is live, open `https://aerilo.app/support.html`, `/privacy.html` and `/appcast.json` to check them.
 
-### 2. Upload the builds (done for 1.0.1)
+### 2. Upload the builds (done for 1.0.2)
 All four builds are in App Store Connect. To upload a newer one, run these at the Mac, signed in, and answer any keychain dialog with "Always Allow":
 
 ```sh
@@ -89,6 +91,7 @@ Things that have not been checked by a person on a real device:
 - Mac App Store edition: allow the Home folder, run Breathe, open Activity, press "Show" on an app.
 - iPhone: run Breathe on your own photo library, review a group, delete one item.
 - Apple TV and Vision Pro: open the app and run a breath.
+- The widget: add it to a Mac desktop and an iPhone Home Screen.
 
 ### 4. Fill in what only the account holder can
 In App Store Connect, on the Aerilo app:
@@ -98,6 +101,7 @@ In App Store Connect, on the Aerilo app:
 - **Pricing and Availability**: Free, and the countries you want.
 - **App Review Information**: check the contact name and phone. They were copied from another app on the team; the email is info@geekcow.com.
 - For each platform's version: under **Build**, select the uploaded build.
+- Optional, iPhone and iPad only: upload the pictures in `marketing/appstore/` under "Header and Search Results" on the version's page.
 
 ### 5. Submit
 On each platform's version page, press **Add for Review**, then **Submit**. Platforms are reviewed separately, so one can go first.

@@ -10,6 +10,7 @@ ONE TAP
 SEE WHAT WEIGHS ON YOUR MAC
 • Memory and processor use for every app, with its helpers counted together.
 • Spots apps that are stuck on the processor and apps whose memory keeps growing, the usual sign of a leak.
+• Look inside an app: see how much its tabs, extensions and helpers each hold.
 • One click brings the app forward so you can quit it.
 
 IT THINKS BEFORE IT ACTS
@@ -21,6 +22,11 @@ SAFE BY DESIGN
 • Larger caches are yours to tick. Anything that could matter is only shown in Finder and never deleted.
 • An item is skipped while the app that owns it is working.
 • Aerilo never quits an app by itself.
+
+MORE ROOM
+• Caches of apps that are closed, old crash reports and developer leftovers, each ticked by you.
+• A large-files finder for Downloads, Documents, Desktop and Movies. It only lists them; moving one to the Trash is your click.
+• A widget with your Mac's health, memory and free storage.
 
 PHOTOS TOO
 Aerilo can look through your Photos library for duplicates, similar shots, old screenshots and large videos. You review them first; nothing is deleted until you choose.
