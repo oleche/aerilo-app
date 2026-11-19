@@ -9,7 +9,7 @@ What is already done, what is left, and who does each step. Commands are explain
 | Mac download (DMG) | Published. Signed, notarized, on GitHub Releases. Anyone can download and run it. |
 | Website | Written, not hosted yet. |
 | App Store listing (Mac, iPhone and iPad, Apple TV, Vision Pro) | Text, categories, screenshots and review notes are uploaded. Version 1.0.1, "Prepare for Submission". |
-| App Store builds | Not uploaded yet. |
+| App Store builds | Uploaded for all four platforms (version 1.0.1) and processed. Not yet attached to the listing. |
 | App Store review | Not submitted. |
 
 ## What each edition can do
@@ -37,8 +37,8 @@ The app's Help links, the App Store listing (support and privacy pages) and the 
 - Point the aerilo.app domain at any static host (GitHub Pages, Cloudflare Pages, Netlify). The `CNAME` file already says `aerilo.app`.
 - After it is live, open `https://aerilo.app/support.html`, `/privacy.html` and `/appcast.json` to check them.
 
-### 2. Upload the builds
-Run these at the Mac, signed in, and answer the keychain dialogs with "Always Allow":
+### 2. Upload the builds (done for 1.0.1)
+All four builds are in App Store Connect. To upload a newer one, run these at the Mac, signed in, and answer any keychain dialog with "Always Allow":
 
 ```sh
 fastlane mac beta                       # Mac
@@ -47,7 +47,7 @@ fastlane devices_beta platform:tvos     # Apple TV
 fastlane devices_beta platform:visionos # Vision Pro
 ```
 
-Each build appears in App Store Connect under TestFlight after about 15 minutes of processing.
+A build appears under TestFlight after a few minutes of processing.
 
 ### 3. Try the builds from TestFlight
 Things that have not been checked by a person on a real device:

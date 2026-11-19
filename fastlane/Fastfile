@@ -47,6 +47,15 @@ end
 MAC_REVIEW_NOTE = "Aerilo asks the user to select their Home folder once so it can measure and clear cache folders inside it. It deletes nothing until the user presses Breathe or Clear, never touches documents, and never quits another app. Photo tidying deletes only what the user reviews and confirms."
 DEVICE_REVIEW_NOTE = "Aerilo looks through the photo library on the device for duplicates, similar shots, old screenshots and large videos. Nothing is uploaded. It deletes only what the user reviews and confirms through the system dialog."
 
+# Apple's uploader prints a harmless "CDUploaderStateInfoResumeFilePath" line after a successful
+# upload, and fastlane reports it as a failure. Anything else is still raised.
+def tolerate_resume_file_notice
+  yield
+rescue StandardError => e
+  raise unless e.message.include?("CDUploaderStateInfoResumeFilePath")
+  UI.important("Upload succeeded (ignored the uploader's resume-file notice).")
+end
+
 def asc_key_json
   path = ENV["ASC_API_KEY_PATH"] || Dir[File.expand_path("~/.appstoreconnect/*.json")].first
   UI.user_error!("No App Store Connect key: set ASC_API_KEY_PATH or put the key's .json in ~/.appstoreconnect") unless path && File.exist?(path)
@@ -101,7 +110,7 @@ platform :mac do
 
   lane :beta do
     build_store
-    upload_to_testflight(api_key_path: api_key, skip_waiting_for_build_processing: true)
+    tolerate_resume_file_notice { upload_to_testflight(api_key_path: api_key, skip_waiting_for_build_processing: true) }
   end
 
   # Listing only: text, categories and screenshots, no build.
@@ -142,18 +151,40 @@ end
 lane :devices_build do |options|
   platform = options[:platform] || "ios"
   destination = { "ios" => "generic/platform=iOS", "tvos" => "generic/platform=tvOS", "visionos" => "generic/platform=visionOS" }.fetch(platform)
-  build_app(
-    project: "Aerilo.xcodeproj", scheme: "AeriloMobile", configuration: "Release",
-    destination: destination, export_method: "app-store", output_directory: "build/#{platform}",
-    xcargs: "CURRENT_PROJECT_VERSION=#{Time.now.strftime('%Y%m%d%H%M')} #{signing_args}"
-  )
+  # The Apple Distribution certificate signs every platform; each needs its own store profile.
+  # Vision Pro apps use an iOS profile.
+  cert(api_key_path: asc_key_json, output_path: "build/certs")
+  sigh(api_key_path: asc_key_json, platform: platform == "tvos" ? "tvos" : "ios", app_identifier: "app.aerilo.Aerilo",
+       output_path: "build/certs", filename: "store-#{platform}.mobileprovision")
+  # Built with xcodebuild directly: fastlane's own build step picks the Mac scheme for this project.
+  # Signed for distribution from the start: development signing would need a registered device of
+  # each kind, and the team has no Apple TV.
+  profile = lane_context[SharedValues::SIGH_NAME]
+  out = File.expand_path("../build/#{platform}")
+  archive = "#{out}/Aerilo.xcarchive"
+  FileUtils.mkdir_p(out)
+  plist = "#{out}/export.plist"
+  File.write(plist, <<~XML)
+    <?xml version="1.0" encoding="UTF-8"?>
+    <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+    <plist version="1.0"><dict>
+      <key>method</key><string>app-store-connect</string>
+      <key>signingStyle</key><string>manual</string>
+      <key>signingCertificate</key><string>Apple Distribution</string>
+      <key>provisioningProfiles</key><dict><key>app.aerilo.Aerilo</key><string>#{profile}</string></dict>
+    </dict></plist>
+  XML
+  build = Time.now.strftime("%Y%m%d%H%M")
+  sh("cd .. && xcodebuild -project Aerilo.xcodeproj -scheme AeriloMobile -configuration Release -destination '#{destination}' -archivePath '#{archive}' CURRENT_PROJECT_VERSION=#{build} CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY='Apple Distribution' PROVISIONING_PROFILE_SPECIFIER='#{profile}' archive -quiet", log: false)
+  sh("cd .. && xcodebuild -exportArchive -archivePath '#{archive}' -exportPath '#{out}' -exportOptionsPlist '#{plist}' -quiet", log: false)
+  lane_context[SharedValues::IPA_OUTPUT_PATH] = Dir["#{out}/*.ipa"].first
 end
 
 lane :devices_beta do |options|
   devices_build(options)
   key = asc_key_json
   store_platform = { "ios" => "ios", "tvos" => "appletvos", "visionos" => "xros" }.fetch(options[:platform] || "ios")
-  upload_to_testflight(api_key_path: key, app_platform: store_platform, skip_waiting_for_build_processing: true)
+  tolerate_resume_file_notice { upload_to_testflight(api_key_path: key, ipa: lane_context[SharedValues::IPA_OUTPUT_PATH], app_platform: store_platform, skip_waiting_for_build_processing: true) }
 end
 
 lane :devices_release do |options|
