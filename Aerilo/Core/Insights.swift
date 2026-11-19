@@ -8,6 +8,8 @@ import Foundation
 struct AppInsight {
     struct Part: Identifiable {
         let pid: pid_t
+        /// Start time of the process, so an old list can never end a newer process with the same pid.
+        var born: UInt64 = 0
         let title: String
         var footprint: UInt64
         var cpu: Double
@@ -136,14 +138,14 @@ enum Insights {
         for p in procs where members.contains(p.pid) {
             let inside = (p.ownerApp ?? p.name) == app
             let (kind, title) = classify(name: p.name, arguments: arguments(p.pid), isMain: p.pid == mainPID, insideApp: inside)
-            buckets[kind, default: []].append(AppInsight.Part(pid: p.pid, title: title, footprint: p.footprint, cpu: p.cpu, canEnd: kind == .tabs || kind == .tools))
+            buckets[kind, default: []].append(AppInsight.Part(pid: p.pid, born: p.born, title: title, footprint: p.footprint, cpu: p.cpu, canEnd: kind == .tabs || kind == .tools))
         }
         var sections = buckets.map { kind, parts -> AppInsight.Section in
             var sorted = parts.sorted { $0.footprint > $1.footprint }
             // Tabs have no names an outside app may read, so they are numbered by size.
             if kind == .tabs {
                 sorted = sorted.enumerated().map { index, part in
-                    AppInsight.Part(pid: part.pid, title: index == 0 && sorted.count > 1 ? "Heaviest tab or window" : "Tab or window \(index + 1)",
+                    AppInsight.Part(pid: part.pid, born: part.born, title: index == 0 && sorted.count > 1 ? "Heaviest tab or window" : "Tab or window \(index + 1)",
                                     footprint: part.footprint, cpu: part.cpu, canEnd: part.canEnd)
                 }
             }

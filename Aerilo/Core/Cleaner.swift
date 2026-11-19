@@ -44,8 +44,11 @@ struct CleanItem: Identifiable {
     let kind: Kind
     /// Lives outside the home folder or needs a developer tool, so only the direct build can do it.
     var needsFullAccess = false
-    /// Returns why the item must be skipped right now, or nil.
+    /// Returns why the item must be skipped right now, or nil. Asked with a fresh list of processes
+    /// immediately before the item is cleared.
     var blocker: ([ProcInfo]) -> String? = { _ in nil }
+    /// Asked for each folder at the moment it is about to be cleared: true leaves that folder alone.
+    var inUse: (URL) -> Bool = { _ in false }
 
     /// What this item covers, for the activity log.
     var paths: [String] {
@@ -148,7 +151,8 @@ enum Cleaner {
             { procs in
                 for p in procs {
                     if names.contains(p.name) { return "\(p.name) is running" }
-                    if !args.isEmpty, ["java", "node"].contains(p.name) {
+                    // Many tools are a script run by an interpreter, so the name to look for is in the arguments.
+                    if !args.isEmpty, ["java", "node", "ruby"].contains(p.name) || p.name.lowercased().hasPrefix("python") {
                         let line = ProcessProbe.arguments(of: p.pid)
                         if let hit = args.first(where: { line.contains($0) }) { return "\(hit) is running" }
                     }
@@ -162,13 +166,16 @@ enum Cleaner {
 
         // Every other app's cache folder, except apps that are open now, Apple's own, and the ones
         // listed separately. An open app may be writing to its cache, so it is left alone.
-        let open = Set(NSWorkspace.shared.runningApplications.compactMap(\.bundleIdentifier))
+        let open = openApps()
         let listed: Set<String> = ["Homebrew", "pip", "Yarn", "CocoaPods"]
         let appCaches = ((try? fm.contentsOfDirectory(at: caches, includingPropertiesForKeys: [.isDirectoryKey], options: [.skipsHiddenFiles])) ?? []).filter { url in
             let name = url.lastPathComponent
             guard (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true else { return false }
-            return !listed.contains(name) && !name.hasSuffix(".ShipIt") && !name.hasPrefix("com.apple.") && !name.hasPrefix("app.aerilo.")
-                && !open.contains(name) && !open.contains { name.hasPrefix($0 + ".") }
+            // Only folders named after an app ("com.example.App"). Others, such as a browser's "Google" or a
+            // tool's "pypoetry", cannot be matched to a running program and may hold things that do not rebuild
+            // themselves (whole Python environments, downloaded test browsers), so Aerilo leaves them alone.
+            return looksLikeAppID(name) && !listed.contains(name) && !name.hasSuffix(".ShipIt") && !name.hasPrefix("com.apple.") && !name.hasPrefix("app.aerilo.")
+                && !isOpen(name, among: open)
         }
 
         var list: [CleanItem] = [
@@ -180,20 +187,23 @@ enum Cleaner {
             CleanItem(id: "yarn", name: "Yarn cache", detail: "Downloaded packages, fetched again when needed.", tier: .safe,
                       kind: .contents([h("Library/Caches/Yarn")]), blocker: running(["yarn"], args: ["yarn"])),
             CleanItem(id: "brew", name: "Homebrew downloads", detail: "Installers Homebrew already used.", tier: .safe,
-                      kind: .contents([h("Library/Caches/Homebrew")]), blocker: running(["brew", "ruby"])),
+                      kind: .contents([h("Library/Caches/Homebrew")]), blocker: running(["brew"], args: ["/brew.rb", "Homebrew/"])),
             CleanItem(id: "pip", name: "pip cache", detail: "Downloaded Python packages.", tier: .safe,
-                      kind: .contents([h("Library/Caches/pip")]), blocker: running(["pip", "pip3"])),
+                      kind: .contents([h("Library/Caches/pip")]), blocker: running(["pip", "pip3"], args: ["/pip", "-m pip", " pip "])),
             CleanItem(id: "updaters", name: "App update leftovers", detail: "Installers that apps kept after updating.", tier: .safe,
                       kind: .contents(updaters), blocker: running(["ShipIt"])),
             CleanItem(id: "pods", name: "CocoaPods cache", detail: "The next iOS build downloads its pods again.", tier: .rebuildable,
-                      kind: .contents([h("Library/Caches/CocoaPods")]), blocker: running(["pod", "xcodebuild"])),
+                      kind: .contents([h("Library/Caches/CocoaPods")]), blocker: running(["pod", "xcodebuild"], args: ["/pod ", "/bin/pod", "cocoapods"])),
             CleanItem(id: "gradle", name: "Gradle caches", detail: "The next Android build downloads them again.", tier: .rebuildable,
                       kind: .contents([h(".gradle/caches")]), blocker: running(["studio"], args: ["GradleDaemon"])),
             CleanItem(id: "devicesupport", name: "iOS device support", detail: "Debug symbols for devices, copied again on connect.", tier: .rebuildable,
                       kind: .contents([h("Library/Developer/Xcode/iOS DeviceSupport")])),
             CleanItem(id: "appcaches", name: "Caches of closed apps", detail: "What other apps stored to open faster. Each app rebuilds its own when it next opens.", tier: .rebuildable,
-                      kind: .contents(appCaches)),
-            CleanItem(id: "reports", name: "Old crash reports", detail: "Reports macOS wrote when an app crashed.", tier: .rebuildable,
+                      kind: .contents(appCaches),
+                      // The list above was made when Storage was measured. An app may have been opened since, so
+                      // each folder is checked again at the moment it would be cleared.
+                      inUse: { isOpen($0.lastPathComponent, among: openApps()) }),
+            CleanItem(id: "reports", name: "Crash reports", detail: "Every report macOS wrote when an app crashed or hung, recent ones included.", tier: .rebuildable,
                       kind: .contents([h("Library/Logs/DiagnosticReports")])),
             CleanItem(id: "chromedata", name: "Chrome profile", detail: "Your bookmarks, history and logins. Clear browsing data inside Chrome instead.", tier: .ask,
                       kind: .reveal(h("Library/Application Support/Google/Chrome"))),
@@ -216,12 +226,29 @@ enum Cleaner {
         }
         if !Env.isSandboxed, !Env.isHomeOverridden {
             // Simulators can only be removed through Xcode's own tool, which the sandbox cannot run.
-            list.insert(CleanItem(id: "simulators", name: "Unusable simulators", detail: "Simulators of iOS versions that are no longer installed.", tier: .safe,
-                                  kind: .simulators, needsFullAccess: true), at: 0)
+            // Not cleared by the one button: right after an Xcode update, simulators can read as unusable for a
+            // while, and removing one also removes the apps and data inside it.
+            list.append(CleanItem(id: "simulators", name: "Unusable simulators", detail: "Simulators of iOS versions that are no longer installed, with the apps and data inside them.",
+                                  tier: .rebuildable, kind: .simulators, needsFullAccess: true, blocker: running(["Xcode", "Simulator", "xcodebuild"])))
             list.append(CleanItem(id: "runtimes", name: "Unused simulator versions", detail: "iOS versions that no simulator uses. Xcode downloads them again if you need them.",
                                   tier: .rebuildable, kind: .runtimes, needsFullAccess: true, blocker: running(["Simulator", "xcodebuild"])))
         }
         return list
+    }
+
+    /// Bundle identifiers of the apps that are open right now.
+    static func openApps() -> Set<String> {
+        Set(NSWorkspace.shared.runningApplications.compactMap(\.bundleIdentifier))
+    }
+
+    /// "com.example.App": at least three parts of letters, digits, dashes or underscores, joined by dots.
+    static func looksLikeAppID(_ name: String) -> Bool {
+        name.range(of: #"^[A-Za-z][A-Za-z0-9-]*(\.[A-Za-z0-9_-]+){2,}$"#, options: .regularExpression) != nil
+    }
+
+    /// A cache folder is named after its app ("com.example.App") or a part of it ("com.example.App.helper").
+    static func isOpen(_ cacheName: String, among open: Set<String>) -> Bool {
+        open.contains(cacheName) || open.contains { cacheName.hasPrefix($0 + ".") }
     }
 
     private static func confstr(_ name: Int32) -> String {
@@ -259,8 +286,15 @@ enum Cleaner {
         return total
     }
 
+    /// True when Apple's developer tools are installed. Asking `xcrun` without them makes macOS offer to
+    /// install them, which a clean-up must never cause.
+    static let hasDeveloperTools: Bool = {
+        guard let path = Shell.run("/usr/bin/xcode-select", ["-p"], timeout: 10)?.trimmingCharacters(in: .whitespacesAndNewlines), !path.isEmpty else { return false }
+        return FileManager.default.fileExists(atPath: path + "/usr/bin/simctl") || FileManager.default.fileExists(atPath: path + "/usr/bin/xcrun")
+    }()
+
     private static func unavailableSimulators() -> [URL] {
-        guard let json = Shell.run("/usr/bin/xcrun", ["simctl", "list", "devices", "unavailable", "-j"], timeout: 30),
+        guard hasDeveloperTools, let json = Shell.run("/usr/bin/xcrun", ["simctl", "list", "devices", "unavailable", "-j"], timeout: 30),
               let root = try? JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any],
               let runtimes = root["devices"] as? [String: [[String: Any]]] else { return [] }
         return runtimes.values.joined().compactMap { device in
@@ -273,7 +307,7 @@ enum Cleaner {
     /// Installed simulator runtimes that no available simulator device uses. If either question
     /// to simctl fails, the answer is "none": a failed lookup must never read as "nothing uses it".
     static func unusedRuntimes() -> [(id: String, bytes: Int64)] {
-        guard let devicesJSON = Shell.run("/usr/bin/xcrun", ["simctl", "list", "devices", "available", "-j"], timeout: 30),
+        guard hasDeveloperTools, let devicesJSON = Shell.run("/usr/bin/xcrun", ["simctl", "list", "devices", "available", "-j"], timeout: 30),
               let devicesRoot = try? JSONSerialization.jsonObject(with: Data(devicesJSON.utf8)) as? [String: Any],
               let devices = devicesRoot["devices"] as? [String: [[String: Any]]],
               let runtimesJSON = Shell.run("/usr/bin/xcrun", ["simctl", "runtime", "list", "-j"], timeout: 30),
@@ -309,34 +343,101 @@ enum Cleaner {
             let relative = parts.joined(separator: "/")
             return allowed.contains { relative == $0 || relative.hasPrefix($0.hasSuffix("/") ? $0 : $0 + "/") }
         }
-        // /var/folders/xx/yyyy/{T,X}/name, with or without the /private prefix macOS puts in front.
-        let parts = (path.hasPrefix("/private/") ? String(path.dropFirst(8)) : path).split(separator: "/")
-        return parts.count >= 6 && parts[0] == "var" && parts[1] == "folders" && ["T", "X"].contains(String(parts[4])) && !parts.contains("..")
+        // The temp area: only inside this user's own T and X folders, and only below them. The root is the
+        // exact folder macOS reports for this user, not anything that merely looks like one.
+        guard !Env.isHomeOverridden else { return false }
+        let root = URL(fileURLWithPath: tempRootPath).standardizedFileURL.resolvingSymlinksInPath().path
+        guard root.split(separator: "/").count >= 4 else { return false }
+        for area in ["T", "X"] where path.hasPrefix("\(root)/\(area)/") {
+            let rest = path.dropFirst(root.count + area.count + 2).split(separator: "/")
+            return !rest.isEmpty && !rest.contains("..")
+        }
+        return false
     }
 
-    /// Removes the item. Errors on single files are skipped: a cache file in use stays where it is.
+    /// Removes the item. Errors on single files are skipped.
+    ///
+    /// A file an app has open is not protected by that: macOS lets it be removed. What protects a working
+    /// app is `blocker` and `inUse`, both asked immediately before the folder is cleared. A tool that
+    /// starts in the instant between that question and the removal can still lose cache files; they are
+    /// caches, and it fetches or rebuilds them.
     static func clean(_ item: CleanItem) {
-        let fm = FileManager.default
         switch item.kind {
         case .contents(let urls):
-            for dir in urls where isSafeTarget(dir) {
-                // Refuse a folder that is itself a symlink, so nothing outside the target is touched.
-                guard (try? dir.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink) == false else { continue }
-                for child in (try? fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)) ?? [] {
-                    try? fm.removeItem(at: child)
-                }
-            }
+            for dir in urls where !item.inUse(dir) { remove(dir, keepFolder: true) }
         case .folders(let urls):
-            for dir in urls where isSafeTarget(dir) { try? fm.removeItem(at: dir) }
+            for dir in urls where !item.inUse(dir) { remove(dir, keepFolder: false) }
         case .simulators:
             // Only through simctl, never by deleting inside CoreSimulator/Devices.
+            guard hasDeveloperTools else { return }
             Shell.run("/usr/bin/xcrun", ["simctl", "delete", "unavailable"], timeout: 300)
         case .runtimes:
-            for runtime in unusedRuntimes() {
+            for runtime in unusedRuntimes() where hasDeveloperTools {
                 Shell.run("/usr/bin/xcrun", ["simctl", "runtime", "delete", runtime.id], timeout: 300)
             }
         case .reveal:
             break
+        }
+    }
+
+    /// Empties a folder, and removes the folder too unless `keepFolder`.
+    ///
+    /// The folder is opened once and everything is done through that open handle, by name, never by path.
+    /// So the check and the removal are about the same folder: swapping the folder or one of its parents
+    /// for a link after the check cannot send the removal somewhere else. Links inside are removed as
+    /// links and never followed, and the walk never crosses onto another volume.
+    static func remove(_ url: URL, keepFolder: Bool) {
+        // Refuses a folder that is itself a link.
+        let fd = open(url.path, O_RDONLY | O_DIRECTORY | O_NOFOLLOW)
+        guard fd >= 0 else { return }
+        defer { close(fd) }
+        // Where the open handle really is, whatever the path said.
+        guard let real = path(of: fd), isSafeTarget(URL(fileURLWithPath: real)) else { return }
+        var info = stat()
+        guard fstat(fd, &info) == 0 else { return }
+        empty(fd, volume: info.st_dev, depth: 0)
+        guard !keepFolder else { return }
+        let parent = (real as NSString).deletingLastPathComponent
+        let parentFD = open(parent, O_RDONLY | O_DIRECTORY | O_NOFOLLOW)
+        guard parentFD >= 0 else { return }
+        defer { close(parentFD) }
+        guard path(of: parentFD) == parent else { return }
+        unlinkat(parentFD, (real as NSString).lastPathComponent, AT_REMOVEDIR)
+    }
+
+    /// The real location of an open folder.
+    private static func path(of fd: Int32) -> String? {
+        var buffer = [CChar](repeating: 0, count: Int(PATH_MAX))
+        return fcntl(fd, F_GETPATH, &buffer) == 0 ? String(cString: buffer) : nil
+    }
+
+    private static func empty(_ fd: Int32, volume: dev_t, depth: Int) {
+        // Names first, then removal, so the listing is not disturbed while it is read.
+        let copy = dup(fd)
+        guard copy >= 0, let dir = fdopendir(copy) else { if copy >= 0 { close(copy) }; return }
+        var names: [String] = []
+        while let entry = readdir(dir) {
+            let name = withUnsafePointer(to: entry.pointee.d_name) {
+                $0.withMemoryRebound(to: CChar.self, capacity: Int(entry.pointee.d_namlen) + 1) { String(cString: $0) }
+            }
+            if name != "." && name != ".." { names.append(name) }
+        }
+        closedir(dir)
+        for name in names {
+            var info = stat()
+            guard fstatat(fd, name, &info, AT_SYMLINK_NOFOLLOW) == 0 else { continue }
+            if (info.st_mode & S_IFMT) == S_IFDIR {
+                // A folder on another volume is a mount point: not Aerilo's to empty.
+                guard info.st_dev == volume, depth < 128 else { continue }
+                let child = openat(fd, name, O_RDONLY | O_DIRECTORY | O_NOFOLLOW)
+                if child >= 0 {
+                    empty(child, volume: volume, depth: depth + 1)
+                    close(child)
+                }
+                unlinkat(fd, name, AT_REMOVEDIR)
+            } else {
+                unlinkat(fd, name, 0)
+            }
         }
     }
 }

@@ -45,9 +45,9 @@ enum PhotoKind: String, CaseIterable, Identifiable, Sendable {
     }
     var note: String {
         switch self {
-        case .duplicates: return "The same picture saved more than once. Aerilo keeps one of each."
-        case .similar: return "Taken seconds apart and nearly the same. Aerilo suggests keeping the best one."
-        case .screenshots: return "Screenshots older than 30 days."
+        case .duplicates: return "The same picture or video saved more than once. Aerilo keeps one of each, and never ticks a favourite."
+        case .similar: return "Taken seconds apart and nearly the same. Aerilo suggests keeping one of each: a favourite if there is one, otherwise the first."
+        case .screenshots: return "Screenshots older than 30 days. Favourites are not ticked."
         case .whatsapp: return "Pictures and videos WhatsApp saved to your library. Nothing is ticked: these are your conversations."
         case .recordings: return "Recordings of your screen. Nothing is ticked here."
         case .videos: return "Nothing is ticked here. Choose the ones you no longer need."
@@ -64,6 +64,8 @@ struct PhotoItem: Identifiable, Hashable, Sendable {
     var date: Date?
     var isVideo = false
     var duration: TimeInterval = 0
+    /// Marked as a favourite in Photos. Aerilo never ticks these itself.
+    var isFavorite = false
     /// Drives the drawn sample picture in demo mode.
     var seed = 0
 }
@@ -127,19 +129,54 @@ enum PhotoScanner {
         return size
     }
 
-    /// Something that is equal only when two assets hold the same bytes.
+    /// Something that is equal only when two assets hold the same bytes: a SHA-256 of the stored picture or
+    /// video. Nil when the bytes are not on the device, and then the asset is never called a duplicate.
     private static func fingerprint(of asset: PHAsset) -> String? {
-        if asset.mediaType == .video {
-            let size = bytes(of: asset)
-            return size > 0 ? "video-\(size)" : nil
-        }
+        if asset.mediaType == .video { return contentHash(of: asset) }
         guard let data = imageData(of: asset) else { return nil }
         return SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
     }
 
+    /// SHA-256 of a video's stored file, read in pieces so a long video never sits in memory.
+    /// Never downloads from iCloud. Two different videos of the same length and size do not match.
+    static func contentHash(of asset: PHAsset) -> String? {
+        let resources = PHAssetResource.assetResources(for: asset)
+        // The edited video when there is one, since that is what the library shows; otherwise the original.
+        guard let resource = resources.first(where: { $0.type == .fullSizeVideo }) ?? resources.first(where: { $0.type == .video }) else { return nil }
+        let options = PHAssetResourceRequestOptions()
+        options.isNetworkAccessAllowed = false
+        let done = DispatchSemaphore(value: 0)
+        let hasher = Hasher256()
+        let request = PHAssetResourceManager.default().requestData(for: resource, options: options, dataReceivedHandler: { hasher.add($0) }, completionHandler: { error in
+            if error != nil { hasher.fail() }
+            done.signal()
+        })
+        // A video that cannot be read in ten minutes is simply not compared.
+        guard done.wait(timeout: .now() + 600) == .success else {
+            PHAssetResourceManager.default().cancelDataRequest(request)
+            return nil
+        }
+        return hasher.result
+    }
+
+    /// Collects a hash across the pieces a video arrives in. The pieces come on another queue, hence the lock.
+    private final class Hasher256: @unchecked Sendable {
+        private var sha = SHA256()
+        private var bytes = 0
+        private var failed = false
+        private let lock = NSLock()
+        func add(_ data: Data) { lock.lock(); sha.update(data: data); bytes += data.count; lock.unlock() }
+        func fail() { lock.lock(); failed = true; lock.unlock() }
+        var result: String? {
+            lock.lock(); defer { lock.unlock() }
+            guard !failed, bytes > 0 else { return nil }
+            return sha.finalize().map { String(format: "%02x", $0) }.joined()
+        }
+    }
+
     private static func item(_ asset: PHAsset, withSize: Bool = true) -> PhotoItem {
         PhotoItem(id: asset.localIdentifier, bytes: withSize ? bytes(of: asset) : 0, date: asset.creationDate,
-                  isVideo: asset.mediaType == .video, duration: asset.duration)
+                  isVideo: asset.mediaType == .video, duration: asset.duration, isFavorite: asset.isFavorite)
     }
 
     private static func best(of assets: [PHAsset]) -> PHAsset? {
@@ -222,8 +259,15 @@ enum PhotoScanner {
             buckets[key, default: []].append(asset)
         }
         for (key, bucket) in buckets where bucket.count > 1 {
+            // Videos are hashed only when another video in the bucket has the same file size: reading a
+            // whole video is slow, and two files of different sizes cannot be the same.
+            var candidates = bucket
+            if bucket[0].mediaType == .video {
+                let sized = Dictionary(grouping: bucket) { bytes(of: $0) }
+                candidates = sized.filter { $0.key > 0 && $0.value.count > 1 }.flatMap(\.value)
+            }
             var same: [String: [PHAsset]] = [:]
-            for asset in bucket {
+            for asset in candidates {
                 if let print = fingerprint(of: asset) { same[print, default: []].append(asset) }
             }
             for (print, copies) in same where copies.count > 1 {
@@ -262,6 +306,9 @@ enum PhotoScanner {
                 if cluster.count > 1 {
                     let keep = best(of: cluster)
                     groups.append(PhotoGroup(id: "sim-\(cluster[0].localIdentifier)", kind: .similar, items: cluster.map { item($0) }, keepID: keep?.localIdentifier))
+                    // One picture, one place: a tick is shared by id, so a picture listed twice would arrive
+                    // ticked in a list that promises nothing is ticked, and be counted twice.
+                    cluster.forEach { taken.insert($0.localIdentifier) }
                 }
             }
             for asset in candidates.dropFirst() {
@@ -283,6 +330,7 @@ enum PhotoScanner {
         let shots = assets.filter { $0.mediaSubtypes.contains(.photoScreenshot) && ($0.creationDate ?? Date()) < cutoff && !taken.contains($0.localIdentifier) }
         if !shots.isEmpty {
             groups.append(PhotoGroup(id: "screenshots", kind: .screenshots, items: shots.map { item($0) }, keepID: nil))
+            shots.forEach { taken.insert($0.localIdentifier) }
         }
 
         // 4. What WhatsApp saved: by its file names, and by the album it keeps.
@@ -404,7 +452,7 @@ final class PhotoModel {
         }.value
         groups = result.groups
         assetCount = result.total
-        selected = Set(groups.filter { $0.kind.preselects }.flatMap { group in group.items.map(\.id).filter { $0 != group.keepID } })
+        selected = Set(groups.filter { $0.kind.preselects }.flatMap { group in group.items.filter { $0.id != group.keepID && !$0.isFavorite }.map(\.id) })
         Audit.record("photos.scan", ["assets": assetCount, "found": selected.count, "bytes": selectedBytes])
         note("Thinking about what helps most")
         advice = await PhotoAdvisor.sentence(for: self)
@@ -415,6 +463,22 @@ final class PhotoModel {
         setPhase(.exhale)
         try? await Task.sleep(for: .seconds(3.2))
         setPhase(.done)
+    }
+
+    /// Everything of one kind that "Delete all" would remove: every item, except the one copy Aerilo
+    /// suggests keeping in each group of duplicates or similar shots, so no picture loses its last copy.
+    func allDeletable(_ kind: PhotoKind) -> [PhotoItem] {
+        groups.filter { $0.kind == kind }.flatMap { group in group.items.filter { $0.id != group.keepID } }
+    }
+
+    /// Ticks everything of one kind (but the suggested keepers) and deletes it. The system still asks the
+    /// user to confirm; if they decline, the ticks stay so they can see what was about to go.
+    func deleteAll(in kind: PhotoKind) async {
+        guard !deleting else { return }
+        let keepers = Set(groups.filter { $0.kind == kind }.compactMap(\.keepID))
+        selected.subtract(keepers)
+        selected.formUnion(allDeletable(kind).map(\.id))
+        await deleteSelected(in: kind)
     }
 
     /// Deletes the ticked items of one kind. The system asks the user to confirm, and the items

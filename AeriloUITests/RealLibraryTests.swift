@@ -29,7 +29,9 @@ final class RealLibraryTests: XCTestCase {
         // Results: what the scan must find in the prepared library.
         let duplicates = app.buttons.matching(NSPredicate(format: "label CONTAINS 'Exact duplicates'")).firstMatch
         XCTAssertTrue(duplicates.waitForExistence(timeout: 90), "The scan should finish and list exact duplicates")
-        XCTAssertTrue(duplicates.label.contains("2 items"), "One picture saved twice is one pair: \(duplicates.label)")
+        // The picture pair, and the video with its true copy. A third video of the same length and size but
+        // different contents must not be counted: that would make 5.
+        XCTAssertTrue(duplicates.label.contains("4 items"), "One picture pair and one video pair: \(duplicates.label)")
 
         let similar = app.buttons.matching(NSPredicate(format: "label CONTAINS 'Similar shots'")).firstMatch
         XCTAssertTrue(similar.exists, "Three near-identical shots should be grouped")
@@ -49,8 +51,8 @@ final class RealLibraryTests: XCTestCase {
         // Review the duplicates and delete the suggested copy.
         sleep(2) // the results slide into place; tap once they are still
         duplicates.tap()
-        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS '1 ticked'")).firstMatch.waitForExistence(timeout: 10),
-                      "One of the two copies should be ticked, the other kept")
+        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS '2 ticked'")).firstMatch.waitForExistence(timeout: 10),
+                      "One copy of each pair should be ticked, the other kept")
         XCTAssertTrue(app.buttons["Delete"].waitForExistence(timeout: 10))
         app.buttons["Delete"].tap()
         // iOS itself asks before anything leaves the library.
@@ -66,7 +68,7 @@ final class RealLibraryTests: XCTestCase {
 
         // The log has the scan and the deletion.
         app.tabBars.buttons["Log"].tap()
-        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS 'Moved 1 item to Recently Deleted'")).firstMatch.waitForExistence(timeout: 10))
+        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS 'Moved 2 items to Recently Deleted'")).firstMatch.waitForExistence(timeout: 10))
         XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS 'Looked through'")).firstMatch.exists)
     }
 
@@ -101,6 +103,29 @@ final class RealLibraryTests: XCTestCase {
                           "Tapping tile \(entry.offset) at \(entry.element) should tick it")
         }
         let shot = XCTAttachment(screenshot: app.screenshot()); shot.lifetime = .keepAlways; add(shot)
+    }
+
+    /// "Delete all" removes every item of a kind in one go, after the system's own confirmation. Runs last (the Z).
+    func testZDeleteAllEmptiesTheList() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["-AppleLanguages", "(en)"]
+        app.launch()
+        app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Breathe.'")).firstMatch.tap()
+        allowIfAsked(["Allow Full Access", "Allow Access to All Photos"])
+        let whatsapp = app.buttons.matching(NSPredicate(format: "label CONTAINS 'From WhatsApp'")).firstMatch
+        XCTAssertTrue(whatsapp.waitForExistence(timeout: 90))
+        sleep(2) // the results slide into place; tap once they are still
+        whatsapp.tap()
+        XCTAssertTrue(app.staticTexts["Nothing ticked"].waitForExistence(timeout: 10), "Nothing is ticked on arrival")
+        XCTAssertFalse(app.buttons["Delete"].isEnabled, "With nothing ticked, plain Delete is off")
+        app.buttons["Delete all"].tap()
+        let confirm = springboard.buttons["Delete"]
+        XCTAssertTrue(confirm.waitForExistence(timeout: 10), "iOS should ask to confirm the deletion")
+        confirm.tap()
+        XCTAssertTrue(app.staticTexts["Nothing left here."].waitForExistence(timeout: 20), "Every item should be gone")
+        app.navigationBars.buttons.firstMatch.tap()
+        app.tabBars.buttons["Log"].tap()
+        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS 'Moved 6 items to Recently Deleted'")).firstMatch.waitForExistence(timeout: 10))
     }
 
     /// Declining the system's confirmation must leave the library untouched.

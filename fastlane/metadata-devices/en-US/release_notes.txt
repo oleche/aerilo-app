@@ -1,5 +1,4 @@
-• Fixed: tall pictures in the photo review now stay in their squares, and every picture can be ticked.
-• Finds WhatsApp media and screen recordings.
-• A Home Screen widget with free storage and memory.
-• Siri and Shortcuts: "Tidy my photos with Aerilo".
-• The Device screen shows memory in use and processor load.
+• Photo review: a "Delete all" button, and favourites are never ticked for you.
+• Videos are compared by their contents before being called duplicates.
+• A picture now appears in one category only, so nothing arrives ticked under "From WhatsApp".
+• Fixed: tall pictures in the photo review stay in their squares.

@@ -67,7 +67,7 @@ struct ActivityView: View {
         .sheet(item: $inside) { group in InsightView(group: group).environment(model) }
         .confirmationDialog("Force \(confirm?.name ?? "") to quit?", isPresented: Binding(get: { confirm != nil }, set: { if !$0 { confirm = nil } }), presenting: confirm) { group in
             Button("Force Quit", role: .destructive) {
-                if let pid = group.mainPID { model.stop(pid: pid, force: true) }
+                if let pid = group.mainPID { model.stop(pid: pid, born: group.mainBorn, force: true) }
                 Task { try? await Task.sleep(for: .seconds(1)); await model.refresh() }
             }
         } message: { _ in
@@ -123,7 +123,7 @@ struct ActivityView: View {
             if Env.isSandboxed {
                 // The App Store does not let one app quit another, so bring it forward instead.
                 Button("Show") {
-                    if let pid = group.mainPID { NSRunningApplication(processIdentifier: pid)?.activate() }
+                    if let pid = group.mainPID { model.show(pid: pid, born: group.mainBorn, name: group.name) }
                 }
                 .buttonStyle(.glass).controlSize(.small)
                 .disabled(!group.isApp || Rules.protected.contains(group.name))
@@ -131,7 +131,7 @@ struct ActivityView: View {
             } else {
                 Menu {
                     Button("Quit") {
-                        if let pid = group.mainPID { model.stop(pid: pid, force: false) }
+                        if let pid = group.mainPID { model.stop(pid: pid, born: group.mainBorn, force: false) }
                         Task { try? await Task.sleep(for: .seconds(1.5)); await model.refresh() }
                     }
                     Button("Force Quit…", role: .destructive) { confirm = group }
@@ -203,7 +203,7 @@ struct StorageView: View {
         @Bindable var model = model
         let chosen = model.items.filter { model.selected.contains($0.id) && $0.tier != .ask && $0.blocker(model.procs) == nil }
         let total = chosen.reduce(Int64(0)) { $0 + (model.sizes[$1.id] ?? 0) }
-        Page(title: "Storage", subtitle: "\(Fmt.bytes(model.sys.diskFree)) free of \(Fmt.bytes(model.sys.diskTotal)). Aerilo measures first and deletes only what you tick.") {
+        Page(title: "Storage", subtitle: "\(Fmt.bytes(model.sys.diskFree)) free of \(Fmt.bytes(model.sys.diskTotal)). Aerilo measures first. Breathe clears the ticked items under Always safe; everything else waits for you.") {
             if Env.isSandboxed, !model.hasHome {
                 HStack {
                     VStack(alignment: .leading, spacing: 4) {
@@ -358,7 +358,7 @@ struct AssistantView: View {
                 }
                 Spacer()
                 Button {
-                    Task { await model.breathe(source: "the assistant"); model.screen = .assistant }
+                    Task { await model.breathe(source: "the assistant", clearing: false); model.screen = .assistant }
                 } label: { Label("Check again", systemImage: "arrow.clockwise") }
                     .buttonStyle(.glass)
                     .disabled(model.phase == .inhale || model.phase == .exhale)

@@ -37,10 +37,10 @@ There are four, and each covers something the others can't.
 
 | Command | What it proves |
 |---|---|
-| `Aerilo --selftest` | Probes work in this build; the delete guard refuses unsafe paths and accepts every catalogue path; the log detects an edited entry; the timeout returns on stuck work. Run it for both Mac editions: the App Store one runs sandboxed. |
+| `Aerilo --selftest` | Probes work in this build; the delete guard refuses unsafe paths and accepts every catalogue path; the delete path refuses a folder behind a link and leaves a folder in use; commands return even when the tool ignores the request to stop or leaves a child holding the pipe; a pid with another start time is refused; the log detects an edited entry and entries missing from the end; the timeout returns on stuck work. Run it for both Mac editions: the App Store one runs sandboxed. |
 | `Aerilo --selftest --ai` | The on-device model produces a plan and a photo sentence (needs Apple Intelligence). |
 | `Aerilo --breathe-test` | The real Breathe sequence, start to finish, on a stand-in home folder: safe caches emptied, optional caches and documents untouched, amount reported, steps shown, log intact. |
-| `scripts/test-ios.sh` | The iPhone app on a real photo library in the simulator: finds the planted duplicate pair, groups three near-identical shots without the unrelated ones, lists the large video unticked, deletes through the system confirmation, and leaves everything alone when the confirmation is declined. |
+| `scripts/test-ios.sh` | The iPhone app on a real photo library in the simulator: finds the planted duplicate picture pair and video pair but not a third video of the same size with different contents, groups three near-identical shots (once, although they carry WhatsApp names) without the unrelated ones, lists the large video unticked, deletes through the system confirmation, and leaves everything alone when the confirmation is declined. |
 | `xcodebuild test -scheme AeriloMobile -destination "platform=tvOS Simulator,…"` | The Apple TV app is fully usable with the remote: focus reaches the orb, results, and individual pictures. |
 
 `Aerilo` here means `build/Build/Products/Debug/Aerilo.app/Contents/MacOS/Aerilo` (or the `build-mas` path for the App Store edition).

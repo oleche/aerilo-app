@@ -350,8 +350,10 @@ struct MobileLog: View {
                     HStack {
                         if entries.isEmpty {
                             Label("Nothing recorded yet", systemImage: "doc").foregroundStyle(.secondary)
+                        } else if broken == 0, Audit.cutShort(entries) {
+                            Label("Entries are missing from the end", systemImage: "exclamationmark.triangle.fill").foregroundStyle(.orange)
                         } else if broken == 0 {
-                            Label("\(entries.count) entries, unchanged", systemImage: "checkmark.seal.fill").foregroundStyle(.green)
+                            Label("\(entries.count) entries, consistent", systemImage: "checkmark.circle.fill").foregroundStyle(.green)
                         } else {
                             Label("\(broken) entries were changed", systemImage: "exclamationmark.triangle.fill").foregroundStyle(.orange)
                         }

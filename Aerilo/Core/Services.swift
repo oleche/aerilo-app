@@ -154,7 +154,8 @@ final class Updater {
               let link = (obj["url"] as? String).flatMap(URL.init(string:)),
               // Only ever send people to our own site or our own GitHub releases, over https.
               link.scheme == "https",
-              link.host == "aerilo.app" || (link.host == "github.com" && link.path.hasPrefix("/oleche/aerilo-app/releases/"))
+              !link.absoluteString.contains(".."), !link.absoluteString.lowercased().contains("%2e"), link.user == nil,
+              link.host == "aerilo.app" || (link.host == "github.com" && link.standardized.path.hasPrefix("/oleche/aerilo-app/releases/"))
         else {
             message = "Couldn't reach aerilo.app. Try again later."
             Audit.record("update.check", ["result": "unreachable"])

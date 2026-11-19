@@ -6,7 +6,7 @@ extension Audit {
         let name = DateFormatter()
         name.dateFormat = "yyyy-MM-dd"
         panel.nameFieldStringValue = "Aerilo activity \(name.string(from: Date())).txt"
-        panel.message = "The report lists what Aerilo measured, cleared and skipped. It contains app and folder names from this Mac."
+        panel.message = "The report lists what Aerilo measured, cleared and skipped. It contains app names, folder paths (which include your account name) and the names of files you moved to the Trash."
         guard panel.runModal() == .OK, let url = panel.url else { return }
         try? report().write(to: url, atomically: true, encoding: .utf8)
         record("log.export")

@@ -6,8 +6,8 @@ import SwiftUI
 
 struct Finding: Identifiable {
     enum Action {
-        case quit(pid: pid_t, name: String)
-        case show(pid: pid_t, name: String)
+        case quit(pid: pid_t, born: UInt64, name: String)
+        case show(pid: pid_t, born: UInt64, name: String)
         case clean([String])
         case open(URL)
         case grantAccess
@@ -29,6 +29,8 @@ struct AppGroup: Identifiable {
     var cpu: Double = 0
     var count = 0
     var mainPID: pid_t?
+    /// Start time of the main process, checked again before it is quit or shown.
+    var mainBorn: UInt64 = 0
     var isApp = false
     var id: String { name }
 }
@@ -49,7 +51,12 @@ enum Rules {
             if let pid = apps[key] { g.mainPID = pid; g.isApp = true } else if g.mainPID == nil { g.mainPID = p.pid }
             map[key] = g
         }
-        return Array(map.values)
+        let born = Dictionary(procs.map { ($0.pid, $0.born) }, uniquingKeysWith: { a, _ in a })
+        return map.values.map { g in
+            var g = g
+            g.mainBorn = g.mainPID.flatMap { born[$0] ?? ProcessProbe.birth(of: $0) } ?? 0
+            return g
+        }
     }
 
     static func build(sys: SystemSnapshot, procs: [ProcInfo], groups: [AppGroup], net: [NetProc],
@@ -59,8 +66,8 @@ enum Rules {
         func quitAction(_ g: AppGroup) -> (Finding.Action?, String?) {
             guard let pid = g.mainPID, canStop(g), !protected.contains(g.name) else { return (nil, nil) }
             // App Store apps may not quit other apps, so there Aerilo brings the app forward for you to quit.
-            if Env.isSandboxed { return (.show(pid: pid, name: g.name), "Show \(g.name)") }
-            return (.quit(pid: pid, name: g.name), g.isApp ? "Quit \(g.name)" : "Stop")
+            if Env.isSandboxed { return (.show(pid: pid, born: g.mainBorn, name: g.name), "Show \(g.name)") }
+            return (.quit(pid: pid, born: g.mainBorn, name: g.name), g.isApp ? "Quit \(g.name)" : "Stop")
         }
 
         // Runaway: one process pinned above 90% of a core for a minute or more.
@@ -109,7 +116,9 @@ enum Rules {
                                severity: sys.diskFreeFraction < 0.05 ? 3 : 2))
         }
 
-        let optional = items.filter { $0.tier == .rebuildable && (sizes[$0.id] ?? 0) >= 1 << 30 }
+        // One click clears build caches. Simulators and other apps' caches are left for Storage, where each is explained.
+        let needsALook: Set<String> = ["simulators", "runtimes", "appcaches"]
+        let optional = items.filter { $0.tier == .rebuildable && !needsALook.contains($0.id) && (sizes[$0.id] ?? 0) >= 1 << 30 }
         if !optional.isEmpty {
             let total = optional.reduce(Int64(0)) { $0 + (sizes[$1.id] ?? 0) }
             out.append(Finding(id: "caches", icon: "shippingbox", title: "\(Fmt.bytes(total)) of rebuildable caches",
@@ -173,6 +182,7 @@ final class AppModel {
     var items: [CleanItem] = []
     var sizes: [String: Int64] = [:]
     var selected: Set<String> = []
+    @ObservationIgnored private var seenItems: Set<String> = []
     var measuring = false
     var cleaning = false
 
@@ -263,7 +273,11 @@ final class AppModel {
             for item in list { out[item.id] = Cleaner.measure(item) }
             return out
         }.value
-        if selected.isEmpty { selected = Set(items.filter { $0.tier == .safe }.map(\.id)) }
+        // Always-safe items start ticked the first time they are seen. After that the ticks are the user's:
+        // unticking one keeps it out of Breathe too.
+        let fresh = Set(items.map(\.id)).subtracting(seenItems)
+        selected.formUnion(items.filter { $0.tier == .safe && fresh.contains($0.id) }.map(\.id))
+        seenItems.formUnion(fresh)
         measuring = false
     }
 
@@ -280,13 +294,15 @@ final class AppModel {
         guard !Env.isDemo, !cleaning else { return 0 }
         cleaning = true
         defer { cleaning = false }
-        // A test run on a stand-in home must not depend on which apps happen to be open.
-        let procsNow = Env.isHomeOverridden ? [] : procs
+        let probe = procProbe
         var freed: Int64 = 0
         var names: [String] = []
         for item in items where ids.contains(item.id) && item.tier != .ask {
             let before = sizes[item.id] ?? 0
             guard before > 0 else { continue }
+            // Ask who is running now, not when the list was made: a build may have started since.
+            // A test run on a stand-in home must not depend on which apps happen to be open.
+            let procsNow = Env.isHomeOverridden ? [] : await Task.detached(priority: .utility) { probe.sample() }.value
             if let why = item.blocker(procsNow) {
                 note("Skipped \(item.name): \(why)")
                 Audit.record("clean.skipped", ["item": item.id, "name": item.name, "reason": why, "bytes": before])
@@ -308,13 +324,14 @@ final class AppModel {
 
     // MARK: The one button
 
-    func breathe(source: String = "the window") async {
+    /// `clearing: false` measures and advises without removing anything (the assistant's "Check again").
+    func breathe(source: String = "the window", clearing: Bool = true) async {
         guard phase == .idle || phase == .done, !cleaning else { return }
         if Env.isDemo { await Demo.breathe(self); return }
         steps = []
         setPhase(.inhale)
         let began = Date()
-        Audit.record("breathe.start", ["source": source])
+        Audit.record(clearing ? "breathe.start" : "check.start", ["source": source])
 
         note("Reading memory, processor and storage")
         await refresh()
@@ -329,8 +346,9 @@ final class AppModel {
                               "cpuPercent": Int(sys.cpuLoad * 100), "diskFree": sys.diskFree, "health": sys.health,
                               "processes": procs.count])
 
-        let safe = Set(items.filter { $0.tier == .safe }.map(\.id))
-        lastFreed = await clean(ids: safe, reason: "Breathe")
+        // The one button clears the always-safe items, less any the user unticked in Storage.
+        let safe = Set(items.filter { $0.tier == .safe }.map(\.id)).intersection(selected)
+        lastFreed = clearing ? await clean(ids: safe, reason: "Breathe") : 0
         await refresh()
         rebuildFindings()
         note(Advisor.isReady ? "Asking the on-device assistant what helps most" : "Ranking what helps most")
@@ -361,13 +379,12 @@ final class AppModel {
     func perform(_ finding: Finding) async {
         guard let action = finding.action else { return }
         switch action {
-        case .quit(let pid, _):
-            stop(pid: pid, force: false)
+        case .quit(let pid, let born, _):
+            stop(pid: pid, born: born, force: false)
             try? await Task.sleep(for: .seconds(1.5))
             await refresh()
-        case .show(let pid, let name):
-            NSRunningApplication(processIdentifier: pid)?.activate()
-            Audit.record("action.show", ["name": name])
+        case .show(let pid, let born, let name):
+            show(pid: pid, born: born, name: name)
             return
         case .clean(let ids):
             lastFreed += await clean(ids: Set(ids), reason: "suggestion")
@@ -383,11 +400,27 @@ final class AppModel {
         if let advice { self.advice = advice.keeping(findings.map(\.id)) }
     }
 
+    /// A list on screen can be older than the process it names: the process may have finished and its pid
+    /// been given to another. Before any signal, the pid must still belong to the process Aerilo measured.
+    private func stillThere(pid: pid_t, born: UInt64, what: String) -> Bool {
+        if ProcessProbe.isSame(pid: pid, born: born) { return true }
+        Audit.record("action.refused", ["what": what, "pid": Int(pid), "reason": "that process has already finished"])
+        return false
+    }
+
+    /// Brings an app forward (App Store edition, which may not quit other apps).
+    func show(pid: pid_t, born: UInt64, name: String) {
+        guard !Env.isDemo, stillThere(pid: pid, born: born, what: "show \(name)") else { return }
+        NSRunningApplication(processIdentifier: pid)?.activate()
+        Audit.record("action.show", ["name": name])
+    }
+
     /// Asks an app to quit (it can still ask to save), or ends it when `force` is set.
     @discardableResult
-    func stop(pid: pid_t, force: Bool) -> Bool {
+    func stop(pid: pid_t, born: UInt64, force: Bool) -> Bool {
         // Never Aerilo itself, never launchd or the kernel, and only on a direct request from the user.
         guard !Env.isDemo, pid > 1, pid != getpid() else { return false }
+        guard stillThere(pid: pid, born: born, what: "quit") else { return false }
         let name = NSRunningApplication(processIdentifier: pid)?.localizedName ?? procs.first { $0.pid == pid }?.name ?? "process"
         let accepted: Bool
         if let app = NSRunningApplication(processIdentifier: pid) {
@@ -424,8 +457,9 @@ final class AppModel {
 
     /// Ends one helper of an app (a tab's process, a language tool), leaving the app running.
     @discardableResult
-    func end(pid: pid_t, title: String, app: String) -> Bool {
+    func end(pid: pid_t, born: UInt64, title: String, app: String) -> Bool {
         guard !Env.isDemo, !Env.isSandboxed, pid > 1, pid != getpid() else { return false }
+        guard stillThere(pid: pid, born: born, what: "end \(title)") else { return false }
         let accepted = kill(pid, SIGTERM) == 0
         Audit.record("action.end", ["app": app, "what": title, "pid": Int(pid), "accepted": accepted])
         return accepted

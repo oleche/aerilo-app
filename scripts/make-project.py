@@ -12,7 +12,7 @@ build setting; source files need no entry, because every target follows its fold
 An app extension's bundle id must start with its app's, which is why the widget is two targets.
 """
 TEAM = "TM3Y76QWZV"
-VERSION, BUILD = "1.0.3", "4"
+VERSION, BUILD = "1.0.4", "5"
 PHOTOS = "Aerilo compares your photos on this device to find duplicates, similar shots, old screenshots and large videos. Nothing is deleted until you choose."
 FOLDERS = "Aerilo looks here only when you ask it to find large files. It lists them and never deletes one by itself."
 A = "A100000000000000000000"

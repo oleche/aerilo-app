@@ -10,6 +10,9 @@ struct ProcInfo: Identifiable, Hashable {
     var path: String = ""
     /// The process that started this one.
     var parent: pid_t = 0
+    /// When this process started, in microseconds. With the pid it names one process for good: the system
+    /// hands a finished process's pid to a new one, and the start time is how Aerilo tells them apart.
+    var born: UInt64 = 0
     /// Percent of one core, as Activity Monitor shows it.
     var cpu: Double = 0
     var footprint: UInt64 = 0
@@ -67,6 +70,7 @@ final class ProcessProbe: @unchecked Sendable {
             }
             var info = ProcInfo(pid: pid, name: name, path: path)
             info.parent = kp.kp_eproc.e_ppid
+            info.born = Self.birth(kp)
             info.isZombie = kp.kp_proc.p_stat == 5 // SZOMB
             info.ownerApp = Self.ownerApp(of: path)
 
@@ -154,6 +158,25 @@ final class ProcessProbe: @unchecked Sendable {
         return nil
     }
 
+    private static func birth(_ kp: kinfo_proc) -> UInt64 {
+        UInt64(kp.kp_proc.p_starttime.tv_sec) * 1_000_000 + UInt64(kp.kp_proc.p_starttime.tv_usec)
+    }
+
+    /// The start time of the process that holds this pid right now, or nil when there is none.
+    static func birth(of pid: pid_t) -> UInt64? {
+        var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_PID, pid]
+        var kp = kinfo_proc()
+        var size = MemoryLayout<kinfo_proc>.stride
+        guard sysctl(&mib, 4, &kp, &size, nil, 0) == 0, size > 0, kp.kp_proc.p_pid == pid else { return nil }
+        return birth(kp)
+    }
+
+    /// True when `pid` is still the process Aerilo looked at, not a newer one that was given the same number.
+    static func isSame(pid: pid_t, born: UInt64) -> Bool {
+        guard born > 0, let now = birth(of: pid) else { return false }
+        return now == born
+    }
+
     private static func listOwnProcesses() -> [kinfo_proc] {
         var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_UID, Int32(getuid())]
         var size = 0
@@ -230,26 +253,92 @@ enum NetworkProbe {
 // MARK: - Shell
 
 enum Shell {
-    /// Runs a tool and returns its standard output, or nil when it can't start, fails, or times out.
+    /// Runs a tool and returns its standard output, or nil when it can't start, fails, or runs out of time.
+    ///
+    /// It always returns by `timeout` plus a few seconds. The tool runs in its own process group, so when
+    /// time is up the tool and everything it started are asked to stop, then killed, and the pipe is closed
+    /// from this side: a child that ignores the request, or a grandchild that keeps the pipe open, can no
+    /// longer hold a clean-up forever.
     @discardableResult
     static func run(_ tool: String, _ args: [String], timeout: TimeInterval = 60) -> String? {
-        let p = Process()
-        p.executableURL = URL(fileURLWithPath: tool)
-        p.arguments = args
+        var fds: [Int32] = [0, 0]
+        guard pipe(&fds) == 0 else { return nil }
+        let (readEnd, writeEnd) = (fds[0], fds[1])
+
+        var actions: posix_spawn_file_actions_t?
+        posix_spawn_file_actions_init(&actions)
+        defer { posix_spawn_file_actions_destroy(&actions) }
+        posix_spawn_file_actions_adddup2(&actions, writeEnd, 1)
+        posix_spawn_file_actions_addopen(&actions, 0, "/dev/null", O_RDONLY, 0)
+        posix_spawn_file_actions_addopen(&actions, 2, "/dev/null", O_WRONLY, 0)
+        var attr: posix_spawnattr_t?
+        posix_spawnattr_init(&attr)
+        defer { posix_spawnattr_destroy(&attr) }
+        // Its own process group, and none of Aerilo's other open files.
+        posix_spawnattr_setflags(&attr, Int16(POSIX_SPAWN_SETPGROUP | POSIX_SPAWN_CLOEXEC_DEFAULT))
+        posix_spawnattr_setpgroup(&attr, 0)
+
         var env = ProcessInfo.processInfo.environment
         // A GUI app does not inherit the terminal's PATH.
         env["PATH"] = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
-        p.environment = env
-        let out = Pipe()
-        p.standardOutput = out
-        p.standardError = FileHandle.nullDevice
-        do { try p.run() } catch { return nil }
-        let killer = DispatchWorkItem { if p.isRunning { p.terminate() } }
-        DispatchQueue.global().asyncAfter(deadline: .now() + timeout, execute: killer)
-        let data = out.fileHandleForReading.readDataToEndOfFile()
-        p.waitUntilExit()
-        killer.cancel()
-        guard p.terminationStatus == 0 else { return nil }
-        return String(decoding: data, as: UTF8.self)
+        var argv: [UnsafeMutablePointer<CChar>?] = ([tool] + args).map { strdup($0) } + [nil]
+        var envp: [UnsafeMutablePointer<CChar>?] = env.map { strdup("\($0.key)=\($0.value)") } + [nil]
+        defer { argv.forEach { free($0) }; envp.forEach { free($0) } }
+
+        var pid: pid_t = 0
+        let spawned = posix_spawn(&pid, tool, &actions, &attr, &argv, &envp)
+        close(writeEnd)
+        guard spawned == 0 else { close(readEnd); return nil }
+
+        // Read with a deadline: poll says when there is something to read, so a read never blocks.
+        let deadline = Date().addingTimeInterval(timeout)
+        var data = Data()
+        var buffer = [UInt8](repeating: 0, count: 65_536)
+        var finished = false
+        while !finished {
+            let left = deadline.timeIntervalSinceNow
+            if left <= 0 { break }
+            var watch = pollfd(fd: readEnd, events: Int16(POLLIN), revents: 0)
+            let ready = poll(&watch, 1, Int32(min(left, 1) * 1000))
+            if ready < 0 && errno != EINTR { break }
+            if ready > 0 {
+                let n = read(readEnd, &buffer, buffer.count)
+                if n > 0 { data.append(buffer, count: n) } else if n == 0 || errno != EINTR { finished = true }
+            }
+        }
+        close(readEnd)
+
+        // Wait for the exit within what is left of the time; then ask, then insist. The exit is watched
+        // without collecting it, so the process group still belongs to this tool when it is signalled.
+        func exited(within seconds: TimeInterval) -> Bool {
+            let until = Date().addingTimeInterval(seconds)
+            repeat {
+                var info = siginfo_t()
+                let r = waitid(P_PID, id_t(pid), &info, WEXITED | WNOHANG | WNOWAIT)
+                if (r == 0 && info.si_pid == pid) || (r < 0 && errno != EINTR) { return true }
+                usleep(20_000)
+            } while Date() < until
+            return false
+        }
+        var onTime = finished && exited(within: max(0.2, deadline.timeIntervalSinceNow))
+        // Whatever is left in the group goes too: the tool itself when it ran over, or helpers it left behind.
+        kill(-pid, SIGTERM)
+        var gone = onTime
+        if !gone { gone = exited(within: 2) }
+        if !gone {
+            kill(-pid, SIGKILL)
+            gone = exited(within: 2)
+        }
+        var status: Int32 = 0
+        if gone {
+            while waitpid(pid, &status, 0) < 0 && errno == EINTR {}
+        } else {
+            // It cannot be collected yet; do that whenever it ends, so nothing is left half-finished in the process table.
+            let child = pid
+            DispatchQueue.global(qos: .utility).async { var s: Int32 = 0; while waitpid(child, &s, 0) < 0 && errno == EINTR {} }
+            onTime = false
+        }
+        onTime = onTime && (status & 0x7f) == 0 && ((status >> 8) & 0xff) == 0
+        return onTime ? String(decoding: data, as: UTF8.self) : nil
     }
 }

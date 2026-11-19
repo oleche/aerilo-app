@@ -90,6 +90,15 @@ Three mechanisms keep deletion safe, and all three must agree before anything is
 
 A folder that is itself a symlink is never emptied, and a symlink inside a cache is removed without following it.
 
+### What keeps a clean-up from going wrong
+
+- **The one button is narrow.** Breathe clears only the always-safe items that are still ticked in Storage. Simulators, other apps' caches and build caches wait for the user. "Caches of closed apps" lists only folders named like an app identifier, because other folders under Caches can hold things that do not rebuild themselves. The Siri and Shortcuts action opens the app and asks first.
+- **Asked at the last moment.** Each item's `blocker` gets a fresh list of processes immediately before that item is cleared, and "Caches of closed apps" checks each folder's app again (`inUse`) as it reaches it. A tool that starts in the instant between the question and the removal can still lose cache files; they are caches.
+- **Removal through an open handle.** `Cleaner.remove` opens the folder once (refusing a link), asks the system where that handle really is, checks that place with `isSafeTarget`, and then removes by name relative to the handle. Swapping the folder or a parent for a link after the check cannot redirect it. Links inside are removed, never followed; other volumes are never entered.
+- **The temp area is exact.** Only below this user's own `T` and `X` folders, as macOS reports them.
+- **Commands always return.** `Shell.run` starts the tool in its own process group and reads with a deadline; when time is up the whole group is asked to stop, then killed.
+- **A pid is not an identity.** Every process is remembered with its start time (`ProcInfo.born`). Quit, end and show check that the pid still belongs to that process and refuse otherwise (`action.refused` in the log).
+
 ### The Breathe sequence
 
 `AppModel.breathe()` runs these steps, writing a line to `steps` and to the log at each one:
@@ -152,9 +161,12 @@ These were established by running a probe inside the sandbox, not from documenta
 
 `PhotoScanner.scan` (`PhotoEngine.swift`) reads the library and returns groups; it never changes anything.
 
-- **Exact duplicates**: assets with the same type, pixel size, capture second and duration are candidates; they are duplicates only if their stored bytes hash to the same SHA-256.
+- **Exact duplicates**: assets with the same type, pixel size, capture second and duration are candidates; they are duplicates only if their stored bytes hash to the same SHA-256. That holds for videos too: a video is read in pieces and hashed, and only when another video in the group has the same file size. An asset whose bytes are not on the device is never called a duplicate.
 - **Similar shots**: photos taken within 5 seconds of each other with the same pixel size form a chain; neighbours in a chain are compared with `PhotoScanner.alike`. That uses Apple's image feature print when the device provides it (distance below 0.15; measured 0.03 to 0.04 for the same shot a second later and 0.23 and up for different pictures), and otherwise a 64-bit difference hash (at most 8 bits apart).
 - **Old screenshots**: the screenshot subtype, older than 30 days.
+
+Each asset appears in one category only, the first that claims it. Ticks are kept by asset id, so an asset listed twice would arrive ticked in a list that says nothing is ticked.
+
 - **WhatsApp media**: recognised by the file name WhatsApp gives what it saves. Listed, never pre-selected. An app cannot open another app's storage on iOS, so this covers what WhatsApp saved to the library, not what is inside WhatsApp.
 - **Screen recordings**: the screen-recording subtype. Never pre-selected.
 - **Largest videos**: over 50 MB, largest first. These are never pre-selected.
@@ -167,7 +179,7 @@ The Mac shows this in a Photos section with its own button (`PhotosView`); it is
 
 ## The log: `Audit.swift`
 
-One JSON object per line in `~/Library/Logs/Aerilo/audit.jsonl` (inside the container in sandboxed builds). Each entry stores the SHA-256 of the entry before it, so editing or removing an entry breaks the chain and `Audit.entries()` marks it. `Audit.title` turns an entry into a sentence; `Audit.report` produces the exported text file. To log something new, call `Audit.record("event.name", [...])` and add a case to `Audit.title`.
+One JSON object per line in `~/Library/Logs/Aerilo/audit.jsonl` (inside the container in sandboxed builds). Each entry stores the SHA-256 of the entry before it, so editing an entry, or removing one from the middle, breaks the chain and `Audit.entries()` marks it. The newest entry's hash is also kept in the app's settings, apart from the file, so a log cut short at the end or replaced is noticed (`Audit.cutShort`). This is a consistency check, not a seal: someone who rewrites the file and the setting can make a log that passes. `Audit.title` turns an entry into a sentence; `Audit.report` produces the exported text file. To log something new, call `Audit.record("event.name", [...])` and add a case to `Audit.title`.
 
 ## Demo mode and test hooks
 

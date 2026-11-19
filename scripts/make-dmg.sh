@@ -28,8 +28,11 @@ if [[ "$NOTARIZE" == "--notarize" ]]; then
   codesign --verify --deep --strict "$APP"
 fi
 
+# Start from nothing: a leftover file from an earlier build would ship inside the app and break its signature.
+rm -rf "$STAGE"
 mkdir -p "$STAGE"
 ditto "$APP" "$STAGE/Aerilo.app"
+codesign --verify --deep --strict "$STAGE/Aerilo.app"
 ln -sfn /Applications "$STAGE/Applications"
 hdiutil create -volname "Aerilo" -srcfolder "$STAGE" -ov -format UDZO "$DMG" >/dev/null
 

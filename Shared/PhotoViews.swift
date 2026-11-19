@@ -138,6 +138,20 @@ struct PhotoReview: View {
                     Text("Deleted items stay in Recently Deleted for 30 days.").font(.caption).foregroundStyle(.secondary)
                 }
                 Spacer(minLength: 12)
+                let everything = model.allDeletable(kind)
+                // Offered only when it would do more than "Delete": not everything is ticked yet.
+                if everything.count > 1, ticked.count < everything.count {
+                    Button(role: .destructive) {
+                        Task { await model.deleteAll(in: kind) }
+                    } label: {
+                        Text("Delete all").padding(.horizontal, 4)
+                    }
+                    .quietButton()
+                    .tint(.red)
+                    .disabled(model.deleting)
+                    .accessibilityHint(groups.contains { $0.keepID != nil } ? "Deletes every item here except the one suggested to keep in each group. You confirm first."
+                                                                             : "Deletes every item here. You confirm first.")
+                }
                 Button(role: .destructive) {
                     Task { await model.deleteSelected(in: kind) }
                 } label: {

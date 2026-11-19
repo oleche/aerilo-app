@@ -5,7 +5,13 @@ import Foundation
 ///
 /// One JSON object per line in `~/Library/Logs/Aerilo/audit.jsonl` (inside the app's container in the
 /// App Store edition). Every entry carries the SHA-256 of the entry before it, so an entry that is
-/// edited or removed afterwards breaks the chain and `verify()` reports it.
+/// edited, or removed from the middle, no longer fits and `entries()` marks it. Aerilo also keeps the hash
+/// of the newest entry in its own settings, apart from the file, so a log that was cut short at the end or
+/// swapped for another shows up too (`cutShort`).
+///
+/// This is a consistency check, not a seal. It shows accidental damage and casual edits. Someone who can
+/// change both the file and Aerilo's settings, with the time to recompute the hashes, can produce a log
+/// that passes; nothing here proves otherwise, and the interface does not say it does.
 enum Audit {
     struct Entry: Identifiable {
         let id: Int
@@ -18,7 +24,6 @@ enum Audit {
     }
 
     private static let queue = DispatchQueue(label: "app.aerilo.audit")
-    private static var lastHash: String?
     private static let stamp: ISO8601DateFormatter = {
         let f = ISO8601DateFormatter()
         f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
@@ -55,7 +60,9 @@ enum Audit {
         guard !Env.isDemo else { return }
         let time = stamp.string(from: Date())
         queue.async {
-            let prev = lastHash ?? readLastHash() ?? "start"
+            // From the file each time, not from memory: another copy of Aerilo (the menu bar, a self-test)
+            // may have written since, and its entry is the one to follow.
+            let prev = readLastHash() ?? "start"
             let hash = digest(time: time, event: event, detail: detail, prev: prev)
             let line: [String: Any] = ["t": time, "event": event, "detail": detail, "prev": prev, "hash": hash]
             guard var data = try? JSONSerialization.data(withJSONObject: line, options: [.sortedKeys]) else { return }
@@ -64,16 +71,38 @@ enum Audit {
                 handle.seekToEndOfFile()
                 handle.write(data)
                 try? handle.close()
+            } else if !FileManager.default.fileExists(atPath: fileURL.path) {
+                // Only ever start a new file. A log that exists but cannot be opened is left as it is.
+                try? data.write(to: fileURL, options: .withoutOverwriting)
             } else {
-                try? data.write(to: fileURL)
+                return
             }
-            lastHash = hash
+            UserDefaults.standard.set(hash, forKey: checkpointKey)
         }
     }
 
+    /// Where the newest entry's hash is kept, apart from the log. One per log file, so a test's stand-in
+    /// log and the real one never share it.
+    private static let checkpointKey: String = {
+        let id = SHA256.hash(data: Data(fileURL.path.utf8)).prefix(6).map { String(format: "%02x", $0) }.joined()
+        return "auditLastEntry.\(id)"
+    }()
+
+    /// True when the log on disk does not end with the entry Aerilo wrote last: entries were removed from
+    /// the end, or the file was replaced. False for a log from before this note was kept.
+    static func cutShort(_ entries: [Entry]) -> Bool {
+        guard !Env.isDemo, let noted = UserDefaults.standard.string(forKey: checkpointKey) else { return false }
+        return entries.last?.hash != noted
+    }
+
     private static func readLastHash() -> String? {
-        guard let text = try? String(contentsOf: fileURL, encoding: .utf8),
-              let last = text.split(separator: "\n").last,
+        // The end of the file is enough: one entry is far shorter than this.
+        guard let handle = try? FileHandle(forReadingFrom: fileURL) else { return nil }
+        defer { try? handle.close() }
+        let size = (try? handle.seekToEnd()) ?? 0
+        try? handle.seek(toOffset: size > 262_144 ? size - 262_144 : 0)
+        guard let data = try? handle.readToEnd(),
+              let last = String(decoding: data, as: UTF8.self).split(separator: "\n").last,
               let obj = try? JSONSerialization.jsonObject(with: Data(last.utf8)) as? [String: Any] else { return nil }
         return obj["hash"] as? String
     }
@@ -110,6 +139,7 @@ enum Audit {
         switch e.event {
         case "app.start": return "Aerilo \(s("version")) started (\(s("edition")), macOS \(s("os")))"
         case "breathe.start": return "Breathe started from \(s("source"))"
+        case "check.start": return "Checked again from \(s("source")), without clearing anything"
         case "scan": return "Measured: memory \(d["memoryPercent"] ?? "?")%, \(b("diskFree")) storage free, health \(d["health"] ?? "?")"
         case "clean.item": return "Cleared \(s("name")): \(b("bytesBefore")) before, \(b("bytesAfter")) after"
         case "clean.skipped": return "Skipped \(s("name")): \(s("reason"))"
@@ -121,6 +151,7 @@ enum Audit {
         case "files.trash.failed": return "Could not move \(s("name")) to the Trash"
         case "action.end": return "Ended \(s("what").lowercased()) in \(s("app")) (process \(d["pid"] ?? "?")): \((d["accepted"] as? Bool) == true ? "accepted" : "refused")"
         case "action.show": return "Brought \(s("name")) forward for you to quit"
+        case "action.refused": return "Did not \(s("what")): \(s("reason")) (process \(d["pid"] ?? "?"))"
         case "access.temp": return (d["granted"] as? Bool) == true ? "System temp folder access allowed" : "System temp folder access not given"
         case "action.open": return "Opened \(s("url"))"
         case "access.home": return (d["granted"] as? Bool) == true ? "Home folder access allowed" : "Home folder access not given"
@@ -140,6 +171,7 @@ enum Audit {
     static func report() -> String {
         let all = entries()
         let broken = all.filter { !$0.intact }.count
+        let short = cutShort(all)
         let day = DateFormatter()
         day.dateFormat = "yyyy-MM-dd HH:mm:ss Z"
         var lines = [
@@ -148,7 +180,10 @@ enum Audit {
             "Aerilo: \(version), \(edition) edition",
             "System: \(ProcessInfo.processInfo.operatingSystemVersionString)",
             "Entries: \(all.count)",
-            "Integrity: " + (broken == 0 ? "intact (every entry follows from the one before it)" : "\(broken) entries do NOT follow from the one before them; the log was changed outside Aerilo"),
+            "Consistency: " + (broken > 0 ? "\(broken) entries do NOT follow from the one before them; the log was changed outside Aerilo"
+                               : short ? "the log does NOT end with the entry Aerilo wrote last; entries were removed or the file was replaced"
+                               : "consistent (every entry follows from the one before it, and the log ends with the entry Aerilo wrote last)"),
+            "Note: this check shows accidental damage and casual edits. It is not proof against someone who rewrites the whole log.",
             "Log file: \(fileURL.path)",
             "",
         ]

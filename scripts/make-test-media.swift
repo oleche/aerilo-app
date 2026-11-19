@@ -51,8 +51,9 @@ let day: TimeInterval = 86_400
 let base = Date().addingTimeInterval(-10 * day)
 // One picture that will be added twice: identical bytes, identical capture time.
 save(picture(scene: 1, nudge: 0), "duplicate.jpg", taken: base)
-// Three shots a second apart, the sun a few pixels over each time.
-for i in 0..<3 { save(picture(scene: 2, nudge: CGFloat(i) * 6), "burst-\(i).jpg", taken: base.addingTimeInterval(3600 + Double(i))) }
+// Three shots a second apart, the sun a few pixels over each time. They carry WhatsApp names on purpose:
+// they belong under "Similar shots" only, and must not turn up again, ticked, under "From WhatsApp".
+for i in 0..<3 { save(picture(scene: 2, nudge: CGFloat(i) * 6), "IMG-20260103-WA002\(i).jpg", taken: base.addingTimeInterval(3600 + Double(i))) }
 // Three unrelated pictures, minutes apart: these must not be suggested.
 for i in 0..<3 { save(picture(scene: 5 + i * 3, nudge: 0), "single-\(i).jpg", taken: base.addingTimeInterval(7200 + Double(i) * 600)) }
 // One picture named the way WhatsApp names what it saves.

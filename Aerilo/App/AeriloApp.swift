@@ -259,6 +259,45 @@ enum SelfTest {
         Cleaner.clean(probe)
         let left = (try? fm.contentsOfDirectory(atPath: cache.path).count) ?? -1
         print("clean test: measured \(before) bytes, items left \(left), folder kept \(fm.fileExists(atPath: cache.path)), symlink target kept \(fm.fileExists(atPath: outside.appendingPathComponent("keep.txt").path))")
+        // A folder reached through a link must be refused, whatever the path looks like: the handle is
+        // checked for where it really is. Application Support is outside every allowed place.
+        let support = fm.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        let docs = support.appendingPathComponent("aerilo-selftest-\(getpid())")
+        let viaLink = scratch.appendingPathComponent("swapped")
+        var swapKept = "not checked (could not make the test folder)", inUseKept = true
+        if (try? fm.createDirectory(at: docs, withIntermediateDirectories: true)) != nil {
+            try? Data(count: 10).write(to: docs.appendingPathComponent("keep.txt"))
+            try? fm.createSymbolicLink(at: viaLink, withDestinationURL: docs)
+            Cleaner.remove(viaLink, keepFolder: true)                                   // the folder itself is a link
+            try? fm.createDirectory(at: scratch.appendingPathComponent("deep"), withIntermediateDirectories: true)
+            try? fm.createSymbolicLink(at: scratch.appendingPathComponent("deep/parent"), withDestinationURL: support)
+            Cleaner.remove(scratch.appendingPathComponent("deep/parent/aerilo-selftest-\(getpid())"), keepFolder: false) // a parent is a link
+            swapKept = String(fm.fileExists(atPath: docs.appendingPathComponent("keep.txt").path))
+            try? fm.removeItem(at: docs)
+        }
+        // A folder whose owner turns out to be open is left alone at the last moment.
+        let busy = scratch.appendingPathComponent("busy")
+        try? fm.createDirectory(at: busy, withIntermediateDirectories: true)
+        try? Data(count: 10).write(to: busy.appendingPathComponent("a.bin"))
+        Cleaner.clean(CleanItem(id: "b", name: "b", detail: "", tier: .safe, kind: .contents([busy]), inUse: { _ in true }))
+        inUseKept = fm.fileExists(atPath: busy.appendingPathComponent("a.bin").path)
+        print("clean refuses a folder behind a link: \(swapKept)  leaves a folder in use: \(inUseKept)  cache of an open app counts as open: \(Cleaner.isOpen("com.example.App.helper", among: ["com.example.App"]) && !Cleaner.isOpen("com.example.Other", among: ["com.example.App"]))")
+        let tempRoot = Cleaner.tempRootPath
+        print("temp guard: own temp area \(Env.isHomeOverridden || Cleaner.isSafeTarget(URL(fileURLWithPath: tempRoot + "/T/x")))  another area refused \(!Cleaner.isSafeTarget(URL(fileURLWithPath: "/private/var/folders/zz/someone_else/T/x")) && !Cleaner.isSafeTarget(URL(fileURLWithPath: tempRoot + "/T")) && !Cleaner.isSafeTarget(URL(fileURLWithPath: tempRoot + "/C/x")))")
+        if !Env.isSandboxed {
+            // A tool that ignores the request to stop, and one that leaves a child holding the pipe: both must return.
+            var began = Date()
+            let deaf = Shell.run("/bin/sh", ["-c", "trap '' TERM; sleep 30"], timeout: 1)
+            let deafTook = Date().timeIntervalSince(began)
+            began = Date()
+            let orphan = Shell.run("/bin/sh", ["-c", "sleep 30 & echo started"], timeout: 1)
+            let orphanTook = Date().timeIntervalSince(began)
+            let echo = Shell.run("/bin/echo", ["hello"], timeout: 5)
+            print("commands always return: ignores stop \(deaf == nil && deafTook < 7)  child holds the pipe \(orphan == nil && orphanTook < 7)  output passes through \(echo == "hello\n")  failure is nil \(Shell.run("/usr/bin/false", [], timeout: 5) == nil)")
+        }
+        // A pid only counts together with the start time of the process it named.
+        let me = ProcessProbe.birth(of: getpid()) ?? 0
+        print("process identity: own process matches \(ProcessProbe.isSame(pid: getpid(), born: me))  same pid with another start time refused \(!ProcessProbe.isSame(pid: getpid(), born: me + 1))  unknown start time refused \(!ProcessProbe.isSame(pid: getpid(), born: 0))  sampled processes carry it \(procs.contains { $0.pid == getpid() && $0.born == me })")
         try? fm.removeItem(at: scratch)
         let refused = ["/", "/Users", Env.realHome.path, Env.realHome.path + "/Documents", Env.realHome.path + "/Library",
                        Env.realHome.path + "/Library/Caches/../../Documents/x", "/private/var/folders", "/System/Library/Caches/x"]
@@ -280,6 +319,12 @@ enum SelfTest {
             try? text.replacingOccurrences(of: "\"note\":\"first\"", with: "\"note\":\"edited\"").write(to: copy, atomically: true, encoding: .utf8)
         }
         print("log detects an edited entry: \(Audit.entries(at: copy).contains { !$0.intact })")
+        // A copy with its last entry removed still chains correctly; the note Aerilo keeps of its last entry catches it.
+        if let text = try? String(contentsOf: Audit.fileURL, encoding: .utf8) {
+            try? (text.split(separator: "\n").dropLast().joined(separator: "\n") + "\n").write(to: copy, atomically: true, encoding: .utf8)
+        }
+        let shortened = Audit.entries(at: copy)
+        print("log notices missing entries at the end: \(shortened.allSatisfy(\.intact) && Audit.cutShort(shortened) && !Audit.cutShort(Audit.entries()))")
         try? FileManager.default.removeItem(at: copy)
         let log = Audit.entries()
         print("log: \(log.count) entries, \(log.filter { !$0.intact }.count) broken, at …/\(Audit.fileURL.pathComponents.suffix(3).joined(separator: "/"))")
@@ -287,7 +332,7 @@ enum SelfTest {
             func load(_ name: String) -> PhotoScanner.Look? {
                 NSImage(contentsOfFile: "\(folder)/\(name)")?.cgImage(forProposedRect: nil, context: nil, hints: nil).map { PhotoScanner.look(at: $0) }
             }
-            let burst = (0..<3).compactMap { load("burst-\($0).jpg") }
+            let burst = (0..<3).compactMap { load("IMG-20260103-WA002\($0).jpg") }
             let singles = (0..<3).compactMap { load("single-\($0).jpg") }
             func hashOnly(_ l: PhotoScanner.Look) -> PhotoScanner.Look { PhotoScanner.Look(print: nil, hash: l.hash) }
             if burst.count == 3, singles.count == 3 {

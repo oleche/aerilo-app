@@ -33,7 +33,7 @@ Aerilo can look through your Photos library for duplicates, similar shots, old s
 
 NO MYSTERY
 • While it works, Aerilo says what it is doing, step by step.
-• Every measurement, clean-up and skipped item is written to a log on your Mac. Export it to share with support or to keep as an audit record. The log shows if an entry was changed afterwards.
+• Every measurement, clean-up and skipped item is written to a log on your Mac. Export it to share with support or to keep as an audit record. Entries are chained together, so accidental damage and casual edits show up.
 
 PRIVATE
 No account, no analytics, no ads. Aerilo makes no network connections of its own, and its assistant runs on your Mac.

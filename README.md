@@ -35,9 +35,9 @@ Native SwiftUI with Liquid Glass. Apple frameworks only, no third-party code. Ne
 - Aerilo measures first, then deletes, and reports what was actually removed.
 - It deletes only inside known cache locations, never through a symlinked folder, and skips an item while the app that owns it is working.
 - Breathe never quits an app and never touches documents. Photos are deleted only after you review them and the system confirms; they stay in Recently Deleted for 30 days.
-- No keyboard shortcut starts a clean-up.
+- No keyboard shortcut starts a clean-up. The Siri and Shortcuts action opens Aerilo and asks before it clears anything.
 - The assistant can reorder and explain findings; it cannot add an action.
-- Every measurement, clean-up, skip and deletion is written to a log that shows if it was edited afterwards.
+- Every measurement, clean-up, skip and deletion is written to a log. Each entry is chained to the one before, which shows accidental damage and casual edits; it is a consistency check, not a tamper-proof seal.
 
 ## For developers
 

@@ -143,11 +143,19 @@ enum Advisor {
 
 struct BreatheIntent: AppIntent {
     static let title: LocalizedStringResource = "Let My Mac Breathe"
-    static let description = IntentDescription("Clears safe caches and checks what is slowing this Mac down.")
+    static let description = IntentDescription("Opens Aerilo, asks you to confirm, then clears safe caches and checks what is slowing this Mac down.")
+    /// A clean-up is never invisible: Aerilo comes forward so the steps can be watched.
+    static let openAppWhenRun = true
 
     @MainActor
     func perform() async throws -> some IntentResult & ProvidesDialog {
         let model = AppModel.shared
+        // Not before the welcome screen has explained what Breathe clears.
+        guard UserDefaults.standard.bool(forKey: "welcomed") || Env.isDemo else {
+            return .result(dialog: "Open Aerilo once first, so it can show you what Breathe clears.")
+        }
+        // A shortcut can run on a schedule or from a key. Removing files always takes a yes from a person.
+        try await requestConfirmation(dialog: "Clear safe caches on this Mac now?")
         await model.breathe(source: "Siri or Shortcuts")
         let cleared = model.lastFreed > 0 ? "Cleared \(Fmt.bytes(model.lastFreed)). " : ""
         return .result(dialog: "\(cleared)\(model.advice?.headline ?? "Done.")")

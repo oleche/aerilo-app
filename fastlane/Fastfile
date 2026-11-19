@@ -138,7 +138,7 @@ platform :mac do
   lane :listing do
     ensure_review_detail("MAC_OS", MAC_REVIEW_NOTE)
     upload_to_app_store(
-      api_key_path: api_key, platform: "osx", app_version: "1.0.3",
+      api_key_path: api_key, platform: "osx", app_version: "1.0.4",
       metadata_path: "fastlane/metadata", screenshots_path: "fastlane/screenshots",
       skip_binary_upload: true, overwrite_screenshots: true,
       submit_for_review: false, force: true, run_precheck_before_submit: false
@@ -236,7 +236,7 @@ lane :devices_listing do |options|
   store_platform = { "ios" => "ios", "tvos" => "appletvos", "visionos" => "xros" }.fetch(platform)
   ensure_review_detail({ "ios" => "IOS", "tvos" => "TV_OS", "visionos" => "VISION_OS" }.fetch(platform), DEVICE_REVIEW_NOTE)
   upload_to_app_store(
-    api_key_path: asc_key_json, platform: store_platform, app_version: "1.0.3",
+    api_key_path: asc_key_json, platform: store_platform, app_version: "1.0.4",
     app_identifier: "app.aerilo.Aerilo",
     metadata_path: "fastlane/metadata-devices", screenshots_path: "fastlane/screenshots-#{platform}",
     skip_binary_upload: true, overwrite_screenshots: true,

@@ -166,8 +166,11 @@ struct LogView: View {
                 HStack(spacing: 12) {
                     if entries.isEmpty {
                         Label("Nothing recorded yet", systemImage: "doc").foregroundStyle(.secondary)
+                    } else if broken == 0, Audit.cutShort(entries) {
+                        Label("The log does not end with Aerilo's last entry: entries were removed or the file was replaced", systemImage: "exclamationmark.triangle.fill").foregroundStyle(.orange)
                     } else if broken == 0 {
-                        Label("\(entries.count) entries, unchanged since they were written", systemImage: "checkmark.seal.fill").foregroundStyle(.green)
+                        Label("\(entries.count) entries, each follows from the one before", systemImage: "checkmark.circle.fill").foregroundStyle(.green)
+                            .help("A consistency check. It shows accidental damage and casual edits; it is not proof against someone who rewrites the whole log.")
                     } else {
                         Label("\(broken) entries were changed outside Aerilo", systemImage: "exclamationmark.triangle.fill").foregroundStyle(.orange)
                     }

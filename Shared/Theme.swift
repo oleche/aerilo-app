@@ -56,6 +56,16 @@ extension View {
         #endif
     }
 
+    /// A second, quieter action beside the main one.
+    @ViewBuilder
+    func quietButton() -> some View {
+        #if os(visionOS)
+        self.buttonStyle(.bordered)
+        #else
+        self.buttonStyle(.glass)
+        #endif
+    }
+
     /// A Liquid Glass panel for a group of content.
     func glassCard(radius: CGFloat = 26, padding: CGFloat = 18) -> some View {
         self.padding(padding).aeriloGlass(in: .rect(cornerRadius: radius))

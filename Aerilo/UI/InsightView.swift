@@ -85,7 +85,7 @@ struct InsightView: View {
         .task(id: model.procs.count) { await load() }
         .confirmationDialog(ending.map { "End \($0.title.lowercased()) in \(group.name)?" } ?? "", isPresented: Binding(get: { ending != nil }, set: { if !$0 { ending = nil } }), presenting: ending) { part in
             Button("Free \(Fmt.mem(part.footprint))") {
-                model.end(pid: part.pid, title: part.title, app: group.name)
+                model.end(pid: part.pid, born: part.born, title: part.title, app: group.name)
                 Task { try? await Task.sleep(for: .seconds(1.2)); await model.refresh(); await load() }
             }
         } message: { _ in

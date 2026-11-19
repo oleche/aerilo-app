@@ -1,5 +1,9 @@
-• Fixed: tall pictures in the photo review now stay in their squares, and every picture can be ticked.
-• Look inside an app: see what its tabs, extensions and helpers hold.
-• A widget with health, memory and free storage.
-• Clear the caches of closed apps, and find large files you forgot about.
-• Photo tidying now also finds WhatsApp media and screen recordings.
+• Photo review: a "Delete all" button, and favourites are never ticked for you.
+• Videos are compared by their contents before being called duplicates.
+• A picture now appears in one category only, so nothing arrives ticked under "From WhatsApp".
+• Safer clean-up: each item is checked again at the moment it is cleared, and removal cannot be redirected by a link.
+• Breathe leaves out anything you unticked in Storage. Simulators are no longer cleared by the one button.
+• "Caches of closed apps" now covers only folders that belong to an identifiable app.
+• Quit and End act only if the app is still the one that was measured.
+• The Siri and Shortcuts action opens Aerilo and asks before clearing.
+• Fixed: tall pictures in the photo review stay in their squares.
