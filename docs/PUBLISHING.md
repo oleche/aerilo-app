@@ -9,7 +9,7 @@ What is already done, what is left, and who does each step. Commands are explain
 | Mac download (DMG) | Published. Signed, notarized, on GitHub Releases. Anyone can download and run it. |
 | Website | In the `aerilo-site` repository, with a comparison article, `sitemap.xml` and `robots.txt`. |
 | App Store listing (Mac, iPhone and iPad, Apple TV, Vision Pro) | Text, categories, screenshots and review notes are uploaded. Version 1.0.2, "Prepare for Submission". |
-| App Store builds | Uploaded for all four platforms (version 1.0.2, build 3). Not yet attached to the listing. |
+| App Store builds | Uploaded for all four platforms (version 1.0.2) and processed. Not yet attached to the listing. |
 | App Store review | Not submitted. |
 
 ## What each edition can do
