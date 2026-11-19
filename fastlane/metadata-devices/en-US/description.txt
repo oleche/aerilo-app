@@ -4,7 +4,7 @@ Tap Breathe. Aerilo looks through your photos and videos and gathers the ones yo
 
 WHAT IT FINDS
 • Exact duplicates: the same picture saved more than once. Aerilo keeps one of each.
-• Similar shots: pictures taken seconds apart that look nearly the same. Aerilo suggests the best one to keep.
+• Similar shots: pictures taken seconds apart that look nearly the same. Aerilo suggests one to keep: a favourite if there is one.
 • Old screenshots: screenshots older than 30 days.
 • From WhatsApp: pictures and videos WhatsApp saved to your library, largest first.
 • Screen recordings: easy to forget, and often large.
