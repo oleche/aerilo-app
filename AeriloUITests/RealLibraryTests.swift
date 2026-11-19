@@ -4,7 +4,7 @@ import XCTest
 
 /// Runs Aerilo against a real photo library in the simulator, with no demo data.
 /// `scripts/test-ios.sh` loads the library first: one picture saved twice, three near-identical
-/// shots a second apart, three unrelated pictures, one old screenshot and one large video.
+/// shots a second apart, three unrelated pictures, one wide and five tall pictures under WhatsApp names, one old screenshot and one large video.
 final class RealLibraryTests: XCTestCase {
     private let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
 
@@ -68,6 +68,39 @@ final class RealLibraryTests: XCTestCase {
         app.tabBars.buttons["Log"].tap()
         XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS 'Moved 1 item to Recently Deleted'")).firstMatch.waitForExistence(timeout: 10))
         XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS 'Looked through'")).firstMatch.exists)
+    }
+
+    /// Tall pictures must stay inside their own square, and every one of them must be tickable, the left column included.
+    func testTallPicturesStayInTheirSquares() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["-AppleLanguages", "(en)"]
+        app.launch()
+        app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Breathe.'")).firstMatch.tap()
+        allowIfAsked(["Allow Full Access", "Allow Access to All Photos"])
+        let whatsapp = app.buttons.matching(NSPredicate(format: "label CONTAINS 'From WhatsApp'")).firstMatch
+        XCTAssertTrue(whatsapp.waitForExistence(timeout: 90))
+        XCTAssertTrue(whatsapp.label.contains("6 items"), "One wide and five tall pictures: \(whatsapp.label)")
+        sleep(2) // the results slide into place; tap once they are still
+        whatsapp.tap()
+        let tiles = app.buttons.matching(NSPredicate(format: "label == 'Not ticked'"))
+        XCTAssertTrue(tiles.firstMatch.waitForExistence(timeout: 10), "The review screen should open with nothing ticked")
+        sleep(2) // thumbnails arrive
+        XCTAssertEqual(tiles.count, 6)
+        let frames = (0..<6).map { tiles.element(boundBy: $0).frame }
+        for (i, f) in frames.enumerated() {
+            XCTAssertEqual(f.width, f.height, accuracy: 2, "Tile \(i) should be square: \(f)")
+            for (j, g) in frames.enumerated() where j > i {
+                XCTAssertFalse(f.insetBy(dx: 1, dy: 1).intersects(g), "Tiles \(i) and \(j) overlap: \(f) \(g)")
+            }
+        }
+        // Tick each one by tapping its centre; the count must go up every time.
+        let order = frames.enumerated().sorted { ($0.element.minY, $0.element.minX) < ($1.element.minY, $1.element.minX) }
+        for (n, entry) in order.enumerated() {
+            app.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: entry.element.midX, dy: entry.element.midY)).tap()
+            XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH '\(n + 1) ticked'")).firstMatch.waitForExistence(timeout: 5),
+                          "Tapping tile \(entry.offset) at \(entry.element) should tick it")
+        }
+        let shot = XCTAttachment(screenshot: app.screenshot()); shot.lifetime = .keepAlways; add(shot)
     }
 
     /// Declining the system's confirmation must leave the library untouched.

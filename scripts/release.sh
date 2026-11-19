@@ -27,4 +27,6 @@ json.dump({"version": sys.argv[1],
            "notes": sys.argv[2]},
           open("../aerilo-site/appcast.json", "w"), indent=2)
 PY
+# The download buttons' fallback number (the page also reads appcast.json when it loads).
+sed -i '' -E "s#(<span data-version>)[^<]*#\\1$VERSION#" ../aerilo-site/index.html ../aerilo-site/best-mac-cleaner.html
 echo "Released v$VERSION. Commit and publish ../aerilo-site/appcast.json so existing copies see the update."

@@ -156,10 +156,14 @@ struct PhotoReview: View {
     private func tile(_ item: PhotoItem, in group: PhotoGroup) -> some View {
         let ticked = model.selected.contains(item.id)
         return Button { model.toggle(item.id) } label: {
-            PhotoThumb(item: item)
-                .aspectRatio(1, contentMode: .fill)
+            // The square comes from an empty view and the picture is laid over it. Sizing the picture itself made a
+            // tall one (a screen recording, a screenshot) spill over its neighbours and swallow their taps.
+            Color.clear
+                .aspectRatio(1, contentMode: .fit)
                 .frame(minWidth: 0, maxWidth: .infinity)
+                .overlay { PhotoThumb(item: item) }
                 .clipShape(.rect(cornerRadius: 10))
+                .contentShape(.rect(cornerRadius: 10))
                 .overlay(alignment: .topTrailing) {
                     Image(systemName: ticked ? "checkmark.circle.fill" : "circle")
                         .font(.title3).symbolRenderingMode(.palette)

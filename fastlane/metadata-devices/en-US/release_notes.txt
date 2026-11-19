@@ -1,3 +1,4 @@
+• Fixed: tall pictures in the photo review now stay in their squares, and every picture can be ticked.
 • Finds WhatsApp media and screen recordings.
 • A Home Screen widget with free storage and memory.
 • Siri and Shortcuts: "Tidy my photos with Aerilo".
