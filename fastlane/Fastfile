@@ -1,0 +1,62 @@
+# Release automation for Aerilo. Nothing here runs by itself.
+#
+# Uses the team's App Store Connect API key as a fastlane JSON file. Default:
+# ~/.appstoreconnect/samio-asc-key.json (the key the Samio project uses); override with
+# ASC_API_KEY_PATH. Before the first upload, create the app record "Aerilo" with bundle id
+# app.aerilo.Aerilo in App Store Connect.
+#
+#   fastlane mac screenshots   remake the screenshots from the app's demo mode
+#   fastlane mac beta          build the App Store edition and upload it to TestFlight
+#   fastlane mac release       upload build, text and screenshots; does NOT submit for review
+#   fastlane mac direct notes:"..."   notarized DMG -> GitHub release -> appcast (scripts/release.sh)
+
+default_platform(:mac)
+
+platform :mac do
+  def api_key
+    app_store_connect_api_key_path = ENV["ASC_API_KEY_PATH"] || File.expand_path("~/.appstoreconnect/samio-asc-key.json")
+    UI.user_error!("No App Store Connect key at #{app_store_connect_api_key_path}") unless File.exist?(app_store_connect_api_key_path)
+    app_store_connect_api_key_path
+  end
+
+  def bump
+    increment_build_number(xcodeproj: "Aerilo.xcodeproj", build_number: Time.now.strftime("%Y%m%d%H%M"))
+  end
+
+  lane :screenshots do
+    sh("cd .. && xcodebuild -project Aerilo.xcodeproj -scheme AeriloDirect -configuration Debug -derivedDataPath build build -quiet && scripts/screenshots.sh")
+  end
+
+  lane :build_store do
+    bump
+    build_mac_app(
+      project: "Aerilo.xcodeproj", scheme: "Aerilo", configuration: "Release",
+      export_method: "app-store", output_directory: "build/store",
+      xcargs: "-allowProvisioningUpdates"
+    )
+  end
+
+  lane :beta do
+    build_store
+    upload_to_testflight(api_key_path: api_key, skip_waiting_for_build_processing: true)
+  end
+
+  lane :release do
+    build_store
+    upload_to_app_store(
+      api_key_path: api_key,
+      platform: "osx",
+      metadata_path: "fastlane/metadata",
+      screenshots_path: "fastlane/screenshots",
+      overwrite_screenshots: true,
+      submit_for_review: false,   # review submission stays a deliberate step in App Store Connect
+      force: true,
+      precheck_include_in_app_purchases: false
+    )
+  end
+
+  # The edition for aerilo.app: Developer ID, notarized, as a disk image on GitHub Releases.
+  lane :direct do |options|
+    sh("cd .. && scripts/release.sh #{(options[:notes] || 'Improvements and fixes.').shellescape}")
+  end
+end

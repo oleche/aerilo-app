@@ -1,0 +1,34 @@
+Aerilo is one button for a calmer Mac.
+
+Tap Breathe. Your Mac breathes in while Aerilo measures what weighs on it, then breathes out as the things it no longer needs are cleared. A moment later you see how much space came back and what, if anything, is still slowing your Mac down.
+
+ONE TAP
+• Clears leftovers that rebuild themselves: old app installers, build data and package caches.
+• Checks memory, memory pressure, storage, processor load and how long your Mac has run without a restart.
+• Shows a single health score, in the window and in the menu bar.
+
+IT THINKS BEFORE IT ACTS
+Aerilo uses Apple Intelligence on your Mac to look at everything together, choose what helps most, and explain it in one plain sentence. You can ask it questions such as "Why is my Mac slow today?". On Macs without Apple Intelligence, Aerilo ranks the same findings with built-in rules.
+
+SAFE BY DESIGN
+• Aerilo measures first and shows the size before anything is removed.
+• The button only clears items that apps recreate by themselves. It never touches your documents.
+• Larger caches are yours to tick. Anything that could matter is only shown in Finder and never deleted.
+• An item is skipped while the app that owns it is working.
+• Aerilo never quits an app by itself.
+
+NO MYSTERY
+• While it works, Aerilo says what it is doing, step by step.
+• Every measurement, clean-up and skipped item is written to a log on your Mac. Export it to share with support or to keep as an audit record. The log shows if an entry was changed afterwards.
+
+PRIVATE
+No account, no analytics, no ads. Aerilo makes no network connections of its own, and its assistant runs on your Mac.
+
+WORKS WITH SIRI AND SHORTCUTS
+Say "Breathe with Aerilo" or add "Let My Mac Breathe" and "Check Mac Health" to your own shortcuts.
+
+GOOD TO KNOW
+• To clear caches, Aerilo asks you once to allow your Home folder. Apple requires this of every App Store app. Notifications and opening at login are optional and off until you turn them on.
+• Apple does not let App Store apps read other apps' memory, processor or network use. The open-source edition at aerilo.app adds per-app activity, stuck-app and growing-memory detection, and per-app network use.
+
+Aerilo is free.
